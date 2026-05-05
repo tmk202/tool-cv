@@ -1,0 +1,15 @@
+{
+  "name": "cv-crawler-server",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "CV Crawler server - filter jobs by title & location",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "better-sqlite3": "^11.7.0",
+    "cors": "^2.8.5"
+  }
+}

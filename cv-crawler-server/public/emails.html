@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CV Crawler - Company Emails</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    .nav { display: flex; gap: 12px; margin-bottom: 16px; }
+    .nav a { color: #1a73e8; text-decoration: none; font-weight: 600; padding: 6px 14px; border-radius: 6px; background: #e8f0fe; }
+    .nav a:hover { background: #d2e3fc; }
+    .company-card { background: #fff; padding: 12px 16px; border-radius: 8px; margin-bottom: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); display: flex; justify-content: space-between; align-items: center; }
+    .company-name { font-weight: 700; font-size: 15px; }
+    .company-actions { display: flex; gap: 6px; align-items: center; }
+    .email-tag { background: #e8f0fe; color: #1a73e8; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+    .email-list { margin-top: 6px; display: flex; gap: 4px; flex-wrap: wrap; }
+    .email-badge { background: #d4edda; color: #155724; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+    .no-email { color: #999; font-size: 12px; }
+    .email-input { padding: 4px 8px; border: 1.5px solid #ddd; border-radius: 4px; font-size: 12px; width: 200px; }
+    .btn-tiny { padding: 4px 8px; font-size: 11px; }
+    #search-box { padding: 9px 12px; border: 1.5px solid #ddd; border-radius: 6px; font-size: 14px; width: 100%; margin-bottom: 12px; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>CV Crawler - Emails</h1>
+      <span id="total-badge">0 emails</span>
+    </header>
+    <div class="nav">
+      <a href="/">⬅ Jobs Filter</a>
+      <a href="/emails.html">📧 Company Emails</a>
+    </div>
+    <input type="text" id="search-box" placeholder="Search company..." autocomplete="off">
+    <div id="company-list"></div>
+  </div>
+  <script>
+    const API = '';
+
+    async function api(path, opts = {}) {
+      const r = await fetch(API + path, opts);
+      return r.json();
+    }
+
+    function esc(t) { if (!t) return ''; const d = document.createElement('div'); d.textContent = t; return d.innerHTML; }
+
+    async function load() {
+      const [companies, allEmails] = await Promise.all([
+        api('/api/companies'),
+        api('/api/emails')
+      ]);
+      if (!companies.ok) return;
+
+      const emailsByCompany = {};
+      (allEmails.emails || []).forEach(e => {
+        const key = e.company.toLowerCase().trim();
+        if (!emailsByCompany[key]) emailsByCompany[key] = [];
+        emailsByCompany[key].push(e.email);
+      });
+
+      document.getElementById('total-badge').textContent = (allEmails.emails || []).length + ' emails';
+
+      const search = document.getElementById('search-box').value.toLowerCase().trim();
+      let list = companies.companies;
+      if (search) list = list.filter(c => c.name.includes(search));
+
+      const container = document.getElementById('company-list');
+      container.innerHTML = list.map(c => {
+        const key = c.name;
+        const emails = emailsByCompany[key] || [];
+        const emailStr = emails.length > 0
+          ? emails.map(e => `<span class="email-badge">${esc(e)}</span>`).join('')
+          : '<span class="no-email">Chưa có email</span>';
+
+        return `
+          <div class="company-card">
+            <div>
+              <div class="company-name">${esc(c.name)}</div>
+              <div class="email-list">${emailStr}</div>
+            </div>
+            <div class="company-actions">
+              <div style="display:flex;gap:4px;align-items:center">
+                <input class="email-input" placeholder="Add email..." id="inp-${esc(key)}">
+                <button class="btn-tiny btn-primary" onclick="addEmail('${esc(key)}')">+</button>
+              </div>
+              <button class="btn-tiny btn-secondary" onclick="searchEmail('${esc(key)}')">🔍 Search</button>
+              <button class="btn-tiny btn-danger-outline" onclick="deleteEmails('${esc(key)}')">🗑</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function addEmail(company) {
+      const input = document.getElementById('inp-' + company);
+      const email = input.value.trim();
+      if (!email) return alert('Nhập email!');
+      if (!email.includes('@')) return alert('Email không hợp lệ!');
+      const r = await api('/api/emails', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ company, email, source: 'manual' })
+      });
+      if (r.ok) { input.value = ''; load(); }
+      else alert(r.error);
+    }
+
+    function searchEmail(company) {
+      const url = `/api/companies/search-url?company=${encodeURIComponent(company)}`;
+      fetch(url).then(r => r.json()).then(d => {
+        if (d.ok && d.url) window.open(d.url, '_blank');
+      });
+    }
+
+    async function deleteEmails(company) {
+      if (!confirm('Xoá emails của "' + company + '"?')) return;
+      await api('/api/emails?company=' + encodeURIComponent(company), { method: 'DELETE' });
+      load();
+    }
+
+    document.getElementById('search-box').addEventListener('input', load);
+    load();
+  </script>
+</body>
+</html>

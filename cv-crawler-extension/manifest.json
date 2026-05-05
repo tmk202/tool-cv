@@ -1,0 +1,55 @@
+{
+  "manifest_version": 3,
+  "name": "CV Crawler - Job Scraper",
+  "version": "1.0.0",
+  "description": "Crawl thông tin công ty từ Google Jobs + TopCV, ITViec, VietnamWorks, CareerViet, ViecLam24h, JobsGo, TopDev, Glints",
+  "permissions": [
+    "storage",
+    "tabs",
+    "downloads",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "*://*.topcv.vn/*",
+    "*://*.itviec.com/*",
+    "*://*.vietnamworks.com/*",
+    "*://*.careerviet.vn/*",
+    "*://*.vieclam24h.vn/*",
+    "*://*.jobsgo.vn/*",
+    "*://*.topdev.vn/*",
+    "*://*.glints.com/*",
+    "*://*.google.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.topcv.vn/*",
+        "*://*.itviec.com/*",
+        "*://*.vietnamworks.com/*",
+        "*://*.careerviet.vn/*",
+        "*://*.vieclam24h.vn/*",
+        "*://*.jobsgo.vn/*",
+        "*://*.topdev.vn/*",
+        "*://*.glints.com/*",
+        "*://*.google.com/*"
+      ],
+      "js": [
+        "utils.js",
+        "platforms.js",
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "CV Crawler",
+    "default_icon": {
+      "128": "icon.png"
+    }
+  }
+}

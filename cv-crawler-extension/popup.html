@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CV Crawler</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>CV Crawler</h1>
+      <span id="version">v1.0</span>
+    </header>
+
+    <section id="platform-section">
+      <div id="platform-row">
+        <div id="platform-status">
+          <span id="platform-icon">🌐</span>
+          <span id="platform-name">Chưa phát hiện</span>
+        </div>
+        <button id="btn-detect" class="btn-secondary">Phát hiện lại</button>
+      <button id="btn-debug" class="btn-secondary" style="font-size:10px;padding:4px 6px;">🔍</button>
+      </div>
+      <div id="debug-info" class="hidden"></div>
+    </section>
+
+    <section id="stats-section">
+      <div class="stat-box">
+        <span class="stat-number" id="stat-total">0</span>
+        <span class="stat-label">Tổng jobs</span>
+      </div>
+      <div class="stat-box">
+        <span class="stat-number" id="stat-companies">0</span>
+        <span class="stat-label">Companies</span>
+      </div>
+      <div class="stat-box">
+        <span class="stat-number" id="stat-platforms">0</span>
+        <span class="stat-label">Platforms</span>
+      </div>
+    </section>
+
+    <section id="control-section">
+      <div class="control-row">
+        <button id="btn-start" class="btn-primary">▶ Start Crawl</button>
+        <button id="btn-stop" class="btn-danger" disabled>⏹ Stop</button>
+        <button id="btn-find-emails" class="btn-secondary">📧 Find Emails</button>
+      </div>
+      <div class="control-row">
+        <label>
+          Số trang tối đa:
+          <input type="number" id="input-max-pages" value="5" min="1" max="50">
+        </label>
+      </div>
+      <div id="crawl-status" class="status-bar hidden">
+        <span id="status-text">Đang crawl...</span>
+        <div class="progress-bar"><div id="progress-fill"></div></div>
+      </div>
+    </section>
+
+    <section id="data-section">
+      <div class="section-header">
+        <h2>Công ty đã crawl</h2>
+        <span id="job-count">0</span>
+      </div>
+      <div id="job-list">
+        <div class="empty-state">Chưa có dữ liệu. Hãy vào trang tuyển dụng và bấm Start!</div>
+      </div>
+    </section>
+
+    <section id="server-section">
+      <div class="section-header">
+        <h2>Server</h2>
+        <span id="server-status" class="server-status">⏹</span>
+      </div>
+      <div class="server-row">
+        <input type="text" id="server-url" value="http://localhost:3000" placeholder="http://localhost:3000">
+        <button id="btn-send-server" class="btn-secondary">📤 Gửi</button>
+      </div>
+      <label class="server-toggle">
+        <input type="checkbox" id="server-auto">
+        <span>Tự động gửi sau khi crawl</span>
+      </label>
+      <div id="server-msg" class="server-msg hidden"></div>
+    </section>
+
+    <section id="export-section">
+      <button id="btn-export-csv" class="btn-secondary">📥 Export CSV</button>
+      <button id="btn-export-json" class="btn-secondary">📥 Export JSON</button>
+      <button id="btn-clear" class="btn-danger-outline">🗑 Xoá dữ liệu</button>
+    </section>
+
+    <footer>
+      <a href="#" id="supported-platforms">9 nền tảng được hỗ trợ (gồm Google Jobs)</a>
+    </footer>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
