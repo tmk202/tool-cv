@@ -27,12 +27,16 @@
       <h1>CV Crawler - Emails</h1>
       <span id="total-badge">0 emails</span>
     </header>
-    <div class="nav">
-      <a href="/">⬅ Jobs Filter</a>
-      <a href="/emails.html">📧 Company Emails</a>
+    <div class="nav" style="display:flex;justify-content:space-between;align-items:center;">
+      <div style="display:flex;gap:12px;">
+        <a href="/">⬅ Jobs Filter</a>
+        <a href="/emails.html">📧 Company Emails</a>
+      </div>
+      <button id="btn-batch-find" class="btn-primary" style="font-size:12px;padding:6px 12px;">🚀 Batch Find Emails</button>
     </div>
     <input type="text" id="search-box" placeholder="Search company..." autocomplete="off">
     <div id="company-list"></div>
+    <div id="batch-status" class="hidden" style="background:#fff3cd;padding:10px;border-radius:8px;margin-top:10px;font-size:13px;color:#856404;"></div>
   </div>
   <script>
     const API = '';
@@ -119,6 +123,35 @@
     }
 
     document.getElementById('search-box').addEventListener('input', load);
+
+    document.getElementById('btn-batch-find').addEventListener('click', async () => {
+      const companies = await api('/api/companies');
+      const withoutEmail = companies.companies.filter(c => c.emailCount === 0);
+      if (withoutEmail.length === 0) return alert('Tất cả company đã có email!');
+
+      const statusEl = document.getElementById('batch-status');
+      statusEl.classList.remove('hidden');
+      let done = 0;
+      const batchSize = 5;
+
+      for (let i = 0; i < withoutEmail.length; i += batchSize) {
+        const batch = withoutEmail.slice(i, i + batchSize);
+        for (const c of batch) {
+          done++;
+          statusEl.innerHTML = `🔍 Đang mở <b>${esc(c.name)}</b> (${done}/${withoutEmail.length})...`;
+          const urlData = await api(`/api/companies/search-url?company=${encodeURIComponent(c.name)}`);
+          if (urlData.ok) window.open(urlData.url, '_blank');
+          await new Promise(r => setTimeout(r, 800));
+        }
+        if (i + batchSize < withoutEmail.length) {
+          statusEl.innerHTML += `<br>⏸ Chờ 3s trước lô tiếp theo...`;
+          await new Promise(r => setTimeout(r, 3000));
+        }
+      }
+
+      statusEl.innerHTML = `✅ Đã mở ${done} tab! Extension sẽ tự động: quét email → lưu server → đóng tab.`;
+    });
+
     load();
   </script>
 </body>

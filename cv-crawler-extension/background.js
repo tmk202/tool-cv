@@ -187,6 +187,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
     }
 
+    case 'CLOSE_THIS_TAB':
+      if (sender.tab?.id) {
+        chrome.tabs.remove(sender.tab.id);
+      }
+      sendResponse({ ok: true });
+      break;
+
     case 'SEND_TO_TAB': {
       chrome.tabs.query({ active: true, currentWindow: true }, tabs => {
         if (tabs.length > 0) {

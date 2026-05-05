@@ -57,18 +57,34 @@ async function detectCurrentPlatform() {
     platformIconEl.textContent = '🌐';
     platformNameEl.style.color = '#1a73e8';
     if (debugEl) debugEl.textContent = '';
-    return;
+  } else if (result && result.isEmailSearch) {
+    platformNameEl.textContent = 'Google Search';
+    platformIconEl.textContent = '📧';
+    platformNameEl.style.color = '#28a745';
+    if (debugEl) debugEl.textContent = '';
+  } else {
+    platformNameEl.textContent = 'Không hỗ trợ';
+    platformNameEl.style.color = '#999';
+    platformIconEl.textContent = '🚫';
+    if (debugEl) {
+      const url = result && result.url ? result.url : '(unknown)';
+      const err = result && result.error ? result.error : '';
+      debugEl.textContent = `URL: ${url}${err ? '\n' + err : ''}`;
+      debugEl.style.display = 'block';
+    }
   }
 
-  platformNameEl.textContent = 'Không hỗ trợ';
-  platformNameEl.style.color = '#999';
-  platformIconEl.textContent = '🚫';
+  const emailSection = document.getElementById('email-section');
+  const emailCountBadge = document.getElementById('email-count-badge');
+  const emailList = document.getElementById('email-list');
 
-  if (debugEl) {
-    const url = result && result.url ? result.url : '(unknown)';
-    const err = result && result.error ? result.error : '';
-    debugEl.textContent = `URL: ${url}${err ? '\n' + err : ''}`;
-    debugEl.style.display = 'block';
+  if (result && result.isEmailSearch && result.emails && result.emails.length > 0) {
+    emailSection.classList.remove('hidden');
+    emailCountBadge.textContent = result.emailCount;
+    emailList.innerHTML = result.emails.map(e => `<div>${escapeHtml(e)}</div>`).join('');
+    window.__foundEmails = result.emails;
+  } else {
+    emailSection.classList.add('hidden');
   }
 }
 
@@ -146,6 +162,7 @@ function setupEventListeners() {
   document.getElementById('server-url').addEventListener('change', saveServerSettings);
   document.getElementById('btn-debug').addEventListener('click', dumpDebug);
   document.getElementById('btn-find-emails').addEventListener('click', findEmails);
+  document.getElementById('btn-save-emails').addEventListener('click', saveFoundEmails);
   document.getElementById('supported-platforms').addEventListener('click', showPlatforms);
   loadServerSettings();
 }
@@ -314,6 +331,50 @@ async function dumpDebug() {
     alert('Đã dump debug info ra Console (F12)');
   } else {
     alert('Không thể dump debug: ' + (result?.error || 'content script not found'));
+  }
+}
+
+async function saveFoundEmails() {
+  const emails = window.__foundEmails;
+  if (!emails || emails.length === 0) {
+    alert('Không có email để lưu!');
+    return;
+  }
+  const serverUrl = document.getElementById('server-url').value.trim() || 'http://localhost:3000';
+
+  try {
+    const jobsRes = await fetch(serverUrl + '/api/jobs?limit=500', {
+      headers: { 'Content-Type': 'application/json' }
+    });
+    const jobsData = await jobsRes.json();
+    const companies = [...new Set((jobsData.jobs || []).map(j => j.company).filter(Boolean))];
+
+    const pageText = document.body?.innerText?.toLowerCase() || '';
+    const payload = emails.map(email => {
+      let matchedCompany = '';
+      for (const c of companies) {
+        if (pageText.includes(c.toLowerCase())) {
+          matchedCompany = c;
+          break;
+        }
+      }
+      return { email, company: matchedCompany || 'unknown', source: window.location.href };
+    });
+
+    const sendResult = await fetch(serverUrl + '/api/emails/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails: payload })
+    });
+    const data = await sendResult.json();
+    if (data.ok) {
+      alert(`✅ Đã lưu ${data.added} emails mới (tổng: ${emails.length})`);
+      document.getElementById('email-section').classList.add('hidden');
+    } else {
+      alert('❌ ' + (data.error || 'Lỗi server'));
+    }
+  } catch (err) {
+    alert('❌ Lỗi kết nối server: ' + err.message);
   }
 }
 

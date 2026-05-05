@@ -3,9 +3,24 @@ import cors from 'cors';
 import Database from 'better-sqlite3';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
+import multer from 'multer';
+import nodemailer from 'nodemailer';
+import fs from 'fs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
+const UPLOAD_DIR = join(__dirname, 'uploads');
+
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+
+const storage = multer.diskStorage({
+  destination: UPLOAD_DIR,
+  filename: (req, file, cb) => {
+    const name = Date.now() + '-' + file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
+    cb(null, name);
+  }
+});
+const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
 
 const db = new Database(join(__dirname, 'jobs.db'));
 db.pragma('journal_mode = WAL');
@@ -38,6 +53,36 @@ db.exec(`
     createdAt TEXT NOT NULL DEFAULT ''
   );
   CREATE INDEX IF NOT EXISTS idx_emails_company ON emails(company);
+
+  CREATE TABLE IF NOT EXISTS smtp_config (
+    id INTEGER PRIMARY KEY CHECK (id = 1),
+    host TEXT NOT NULL DEFAULT '',
+    port INTEGER NOT NULL DEFAULT 587,
+    username TEXT NOT NULL DEFAULT '',
+    password TEXT NOT NULL DEFAULT '',
+    fromEmail TEXT NOT NULL DEFAULT '',
+    fromName TEXT NOT NULL DEFAULT ''
+  );
+
+  CREATE TABLE IF NOT EXISTS send_log (
+    id TEXT PRIMARY KEY,
+    company TEXT NOT NULL DEFAULT '',
+    email TEXT NOT NULL DEFAULT '',
+    subject TEXT NOT NULL DEFAULT '',
+    cvFile TEXT NOT NULL DEFAULT '',
+    status TEXT NOT NULL DEFAULT 'pending',
+    error TEXT NOT NULL DEFAULT '',
+    sentAt TEXT NOT NULL DEFAULT ''
+  );
+
+  CREATE TABLE IF NOT EXISTS cv_files (
+    id TEXT PRIMARY KEY,
+    filename TEXT NOT NULL DEFAULT '',
+    originalName TEXT NOT NULL DEFAULT '',
+    uploadedAt TEXT NOT NULL DEFAULT ''
+  );
+
+  INSERT OR IGNORE INTO smtp_config (id, host, port, username, password, fromEmail, fromName) VALUES (1, '', 587, '', '', '', '');
 `);
 
 const insertStmt = db.prepare(`
@@ -218,7 +263,7 @@ app.delete('/api/emails', (req, res) => {
 app.get('/api/companies/search-url', (req, res) => {
   const company = (req.query.company || '').trim();
   if (!company) return res.json({ ok: false });
-  const url = `https://www.google.com/search?q=${encodeURIComponent('"' + company + '" email tuyển dụng OR HR OR recruitment')}`;
+  const url = `https://www.google.com/search?q=${encodeURIComponent(company + ' email tuyển dụng')}`;
   res.json({ ok: true, url });
 });
 
@@ -250,6 +295,176 @@ app.get('/api/jobs/export', (req, res) => {
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
+});
+
+// ─── SMTP Config ───
+app.get('/api/smtp/config', (req, res) => {
+  try {
+    const config = db.prepare('SELECT * FROM smtp_config WHERE id = 1').get();
+    if (config) { const { password, ...safe } = config; safe.hasPassword = !!password; res.json({ ok: true, config: safe }); }
+    else res.json({ ok: true, config: null });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+app.post('/api/smtp/config', (req, res) => {
+  try {
+    const { host, port, username, password, fromEmail, fromName } = req.body;
+    const existing = db.prepare('SELECT password FROM smtp_config WHERE id = 1').get();
+    const finalPassword = password || existing?.password || '';
+    db.prepare('UPDATE smtp_config SET host=?, port=?, username=?, password=?, fromEmail=?, fromName=? WHERE id=1')
+      .run(host || '', parseInt(port) || 587, username || '', finalPassword, fromEmail || '', fromName || '');
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+app.post('/api/smtp/test', async (req, res) => {
+  try {
+    const config = db.prepare('SELECT * FROM smtp_config WHERE id = 1').get();
+    if (!config || !config.host) return res.json({ ok: false, error: 'No SMTP config' });
+    const transporter = nodemailer.createTransport({
+      host: config.host, port: config.port, secure: config.port === 465,
+      auth: { user: config.username, pass: config.password }
+    });
+    await transporter.verify();
+    res.json({ ok: true });
+  } catch (err) { res.json({ ok: false, error: err.message }); }
+});
+
+// ─── CV Upload ───
+app.post('/api/cv/upload', upload.single('cv'), (req, res) => {
+  try {
+    if (!req.file) return res.json({ ok: false, error: 'No file' });
+    const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
+    db.prepare('INSERT INTO cv_files (id, filename, originalName, uploadedAt) VALUES (?, ?, ?, ?)')
+      .run(id, req.file.filename, req.file.originalname, new Date().toISOString());
+    res.json({ ok: true, id, filename: req.file.originalname });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+app.get('/api/cv/list', (req, res) => {
+  try {
+    const files = db.prepare('SELECT * FROM cv_files ORDER BY uploadedAt DESC').all();
+    res.json({ ok: true, files });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+app.delete('/api/cv/:id', (req, res) => {
+  try {
+    const file = db.prepare('SELECT * FROM cv_files WHERE id = ?').get(req.params.id);
+    if (file) {
+      const path = join(UPLOAD_DIR, file.filename);
+      if (fs.existsSync(path)) fs.unlinkSync(path);
+      db.prepare('DELETE FROM cv_files WHERE id = ?').run(req.params.id);
+    }
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+// ─── Send Email ───
+function bodyToHtml(text) {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  const withBold = escaped.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
+  const withItalic = withBold.replace(/\*(.+?)\*/g, '<i>$1</i>');
+  const withBullets = withItalic.replace(/^▸\s(.+)$/gm, '<li>$1</li>');
+  const withHr = withBullets.replace(/^---$/gm, '<hr style="border:none;border-top:1px solid #ddd;margin:16px 0;">');
+  const paragraphs = withHr.split('\n').map(line => {
+    const trimmed = line.trim();
+    if (!trimmed) return '<br>';
+    if (trimmed.startsWith('<li>')) return trimmed;
+    if (trimmed.startsWith('<hr')) return trimmed;
+    return `<p style="margin:6px 0;">${trimmed}</p>`;
+  }).join('\n');
+  return paragraphs;
+}
+
+app.post('/api/send', async (req, res) => {
+  try {
+    const { company, email, subject, body, cvId } = req.body;
+    if (!company || !email) return res.json({ ok: false, error: 'Missing company or email' });
+
+    const config = db.prepare('SELECT * FROM smtp_config WHERE id = 1').get();
+    if (!config || !config.host) return res.json({ ok: false, error: 'No SMTP config. Configure in Send page.' });
+
+    const transporter = nodemailer.createTransport({
+      host: config.host, port: config.port, secure: config.port === 465,
+      auth: { user: config.username, pass: config.password }
+    });
+
+    const finalSubject = (subject || 'Application for Position at {{company}}').replace(/\{\{company\}\}/g, company);
+    const rawBody = (body || 'Dear HR of {{company}},...').replace(/\{\{company\}\}/g, company);
+    const finalBody = bodyToHtml(rawBody);
+
+    const attachments = [];
+    if (cvId) {
+      const ids = cvId.split(',');
+      for (const id of ids) {
+        const cv = db.prepare('SELECT * FROM cv_files WHERE id = ?').get(id.trim());
+        if (cv) {
+          const cvPath = join(UPLOAD_DIR, cv.filename);
+          if (fs.existsSync(cvPath)) {
+            attachments.push({ filename: cv.originalName, path: cvPath });
+          }
+        }
+      }
+    }
+
+    const info = await transporter.sendMail({
+      from: `"${config.fromName || config.username}" <${config.fromEmail || config.username}>`,
+      to: email,
+      subject: finalSubject,
+      html: `<!DOCTYPE html>
+<html>
+<head><meta charset="UTF-8"></head>
+<body style="margin:0;padding:0;background:#f4f6f8;">
+<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:30px 10px;">
+  <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
+    <tr><td style="padding:30px 30px 10px 30px;border-bottom:3px solid #1a73e8;">
+      <h1 style="margin:0;font-family:Segoe UI,Arial,sans-serif;font-size:22px;color:#1a73e8;font-weight:700;">Job Application</h1>
+      <p style="margin:4px 0 0;font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#888;">Automated via AutoCV System</p>
+    </td></tr>
+    <tr><td style="padding:30px;font-family:Segoe UI,Arial,sans-serif;font-size:14px;line-height:1.7;color:#333;">
+      ${finalBody}
+    </td></tr>
+    <tr><td style="padding:20px 30px;background:#f8f9fa;border-top:1px solid #e9ecef;border-radius:0 0 12px 12px;">
+      <p style="margin:0;font-family:Segoe UI,Arial,sans-serif;font-size:11px;color:#999;text-align:center;">
+        This email was sent via <b style="color:#1a73e8;">AutoCV</b> — Intelligent Job Application System
+      </p>
+    </td></tr>
+  </table>
+</td></tr></table>
+</body>
+</html>`,
+      attachments
+    });
+
+    const logId = Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
+    db.prepare('INSERT INTO send_log (id, company, email, subject, cvFile, status, error, sentAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(logId, company, email, finalSubject, cvId || '', 'sent', '', new Date().toISOString());
+
+    res.json({ ok: true, messageId: info.messageId, logId });
+  } catch (err) {
+    const logId = Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
+    db.prepare('INSERT INTO send_log (id, company, email, subject, cvFile, status, error, sentAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(logId, req.body.company || '', req.body.email || '', req.body.subject || '', req.body.cvId || '', 'failed', err.message, new Date().toISOString());
+    res.json({ ok: false, error: err.message, logId });
+  }
+});
+
+app.get('/api/send/log', (req, res) => {
+  try {
+    const limit = Math.min(100, parseInt(req.query.limit) || 50);
+    const logs = db.prepare('SELECT * FROM send_log ORDER BY sentAt DESC LIMIT ?').all(limit);
+    const stats = db.prepare("SELECT status, COUNT(*) as count FROM send_log GROUP BY status").all();
+    res.json({ ok: true, logs, stats });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
+app.delete('/api/send/log', (req, res) => {
+  try { db.prepare('DELETE FROM send_log').run(); res.json({ ok: true }); }
+  catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
 app.listen(PORT, () => {

@@ -1,0 +1,251 @@
+﻿<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CV Crawler - Send</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body { font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif; background:#f0f2f5; color:#333; font-size:14px; }
+    #app { max-width:1100px; margin:0 auto; padding:20px; }
+    header { display:flex; justify-content:space-between; align-items:center; margin-bottom:16px; }
+    header h1 { font-size:24px; font-weight:700; color:#1a73e8; }
+    .nav { display:flex; gap:12px; margin-bottom:16px; flex-wrap:wrap; }
+    .nav a { color:#1a73e8; text-decoration:none; font-weight:600; padding:6px 14px; border-radius:6px; background:#e8f0fe; }
+    .tabs { display:flex; gap:4px; margin-bottom:14px; }
+    .tab { padding:8px 18px; cursor:pointer; border-radius:6px 6px 0 0; font-weight:600; font-size:13px; background:#f0f0f0; color:#666; }
+    .tab.active { background:#1a73e8; color:#fff; }
+    .tab-content { display:none; }
+    .tab-content.active { display:block; }
+    .card { background:#fff; padding:16px; border-radius:8px; margin-bottom:12px; box-shadow:0 1px 3px rgba(0,0,0,0.08); }
+    .form-row { display:flex; gap:10px; margin-bottom:10px; flex-wrap:wrap; align-items:flex-start; }
+    .form-row label { font-weight:600; font-size:13px; min-width:100px; color:#555; padding-top:8px; }
+    .form-row input,.form-row select,.form-row textarea { flex:1; padding:8px 10px; border:1.5px solid #ddd; border-radius:6px; font-size:13px; outline:none; }
+    .form-row input:focus,.form-row select:focus,.form-row textarea:focus { border-color:#1a73e8; }
+    .form-row textarea { min-height:140px; font-family:inherit; resize:vertical; }
+    .btn-primary { background:#1a73e8; color:#fff; padding:9px 18px; border:none; border-radius:6px; font-size:14px; font-weight:600; cursor:pointer; }
+    .btn-primary:hover { background:#1557b0; }
+    .btn-secondary { background:#e9ecef; color:#444; padding:9px 18px; border:none; border-radius:6px; font-size:14px; font-weight:600; cursor:pointer; }
+    .btn-secondary:hover { background:#dee2e6; }
+    .btn-danger-outline { background:transparent; color:#dc3545; border:1.5px solid #dc3545; padding:8px 16px; border-radius:6px; font-size:13px; font-weight:600; cursor:pointer; }
+    .btn-danger-outline:hover { background:#fff5f5; }
+    .log-item { padding:8px 0; border-bottom:1px solid #f0f0f0; font-size:13px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .sent-color { color:#28a745; font-weight:600; }
+    .failed-color { color:#dc3545; font-weight:600; }
+    .badge { padding:2px 8px; border-radius:4px; font-size:11px; font-weight:600; }
+    .badge-green { background:#d4edda; color:#155724; }
+    .badge-red { background:#f8d7da; color:#721c24; }
+    #cv-list div { padding:6px 0; border-bottom:1px solid #f0f0f0; font-size:13px; display:flex; justify-content:space-between; }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>CV Crawler - Send</h1>
+      <span id="status-badge" style="font-size:13px;font-weight:600;color:#dc3545;">Not configured</span>
+    </header>
+    <div class="nav">
+      <a href="/">Jobs</a>
+      <a href="/emails.html">Emails</a>
+      <a href="/send.html">Send</a>
+    </div>
+    <div class="tabs">
+      <div class="tab active" data-tab="compose">Compose</div>
+      <div class="tab" data-tab="config">SMTP</div>
+      <div class="tab" data-tab="cvs">CV Files</div>
+      <div class="tab" data-tab="log">History</div>
+    </div>
+
+    <div id="tab-compose" class="tab-content active">
+      <div class="card">
+        <div class="form-row"><label>Company</label><select id="send-company"><option value="">Select...</option></select></div>
+        <div class="form-row"><label>Email</label><input type="email" id="send-email" placeholder="hr@company.com"></div>
+        <div class="form-row"><label>Subject</label><input type="text" id="send-subject" value="Application for Position at {{company}}"></div>
+        <div class="form-row"><label>Body</label><textarea id="send-body" style="min-height:200px;font-family:monospace;">---
+subject: [Job Application] Senior Position at {{company}}
+to: {{email}}
+attachments: CV.pdf
+
+---
+
+**Dear HR Team at {{company}},**
+
+I hope this message finds you well.
+
+I am writing to express my strong interest in joining **{{company}}**. With my background in **Automation & Software Engineering**, I believe I can contribute meaningfully to your team.
+
+**Key Highlights:**
+
+▸ **Experience:** [X] years in automation, testing, and software development
+▸ **Tech Stack:** Python, Selenium, Playwright, CI/CD, Docker, SQL
+▸ **Achievements:** Built scalable test frameworks, reduced testing time by [X]%
+▸ **Languages:** English, Vietnamese
+
+I have attached my **CV** for your detailed review. I would welcome the opportunity to discuss how my skills align with the needs of {{company}}.
+
+Looking forward to hearing from you.
+
+**Best regards,**
+**[Your Full Name]**
+**[Your Phone Number]**
+**[Your LinkedIn URL]**
+
+---
+
+*This application was submitted via **AutoCV** — an intelligent job application automation system.*</textarea></div>
+        <div class="form-row"><label>CV</label><select id="send-cv" multiple style="min-height:60px;"><option value="">No CV</option></select><span style="font-size:11px;color:#888;align-self:flex-end;">Ctrl+click to select multiple</span></div>
+        <div class="form-row"><label></label><button id="btn-send" class="btn-primary">Send Email</button><span id="send-status" style="font-size:13px;color:#666;align-self:center;"></span></div>
+      </div>
+    </div>
+
+    <div id="tab-config" class="tab-content">
+      <div class="card">
+        <div class="form-row"><label>Host</label><input type="text" id="smtp-host" placeholder="smtp.gmail.com"></div>
+        <div class="form-row"><label>Port</label><input type="number" id="smtp-port" value="587" style="flex:0 0 100px;"></div>
+        <div class="form-row"><label>Username</label><input type="text" id="smtp-username" placeholder="your@email.com"></div>
+        <div class="form-row"><label>Password</label><input type="password" id="smtp-password" placeholder="Gmail App Password"></div>
+        <div style="font-size:11px;color:#888;margin:-6px 0 10px 110px;">Gmail: tạo App Password tại <a href="https://myaccount.google.com/apppasswords" target="_blank">myaccount.google.com/apppasswords</a> (không dùng mật khẩu Gmail thật)</div>
+        <div class="form-row"><label>From Email</label><input type="email" id="smtp-from-email" placeholder="your@email.com"></div>
+        <div class="form-row"><label>From Name</label><input type="text" id="smtp-from-name" placeholder="Your Name"></div>
+        <div class="form-row"><label></label><button id="btn-test-smtp" class="btn-secondary">Test</button><button id="btn-save-smtp" class="btn-primary">Save</button><span id="smtp-status" style="font-size:13px;color:#666;align-self:center;"></span></div>
+      </div>
+    </div>
+
+    <div id="tab-cvs" class="tab-content">
+      <div class="card">
+        <div class="form-row"><label>Upload</label><input type="file" id="cv-file" accept=".pdf,.doc,.docx" style="flex:1;"><button id="btn-upload-cv" class="btn-primary" style="flex:none;">Upload</button></div>
+        <div id="cv-list"></div>
+      </div>
+    </div>
+
+    <div id="tab-log" class="tab-content">
+      <div class="card">
+        <div style="display:flex;gap:10px;margin-bottom:10px;"><span id="log-summary" style="font-size:13px;color:#555;"></span><button id="btn-clear-log" class="btn-danger-outline" style="margin-left:auto;">Clear</button></div>
+        <div id="log-list"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const API='';
+async function api(p,o={}){const r=await fetch(API+p,o);return r.json()}
+function esc(t){if(!t)return'';const d=document.createElement('div');d.textContent=t;return d.innerHTML}
+
+document.querySelectorAll('.tab').forEach(t=>{
+  t.addEventListener('click',()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('tab-'+t.dataset.tab).classList.add('active');
+  });
+});
+
+async function loadCompose(){
+  const[companies,emails,cvs]=await Promise.all([api('/api/companies'),api('/api/emails'),api('/api/cv/list')]);
+  const sel=document.getElementById('send-company');
+  const map={};(emails.emails||[]).forEach(e=>{const k=e.company.toLowerCase().trim();if(!map[k])map[k]=[];map[k].push(e.email)});
+  sel.innerHTML='<option value="">Select...</option>'+(companies.companies||[]).map(c=>'<option value="'+esc(c.name)+'">'+esc(c.name)+' ('+(map[c.name]?.length||0)+' emails)</option>').join('');
+  const cv=document.getElementById('send-cv');
+  cv.innerHTML='<option value="">No CV</option>'+(cvs.files||[]).map(f=>'<option value="'+esc(f.id)+'">'+esc(f.originalName)+'</option>').join('');
+  cv.value='';
+}
+
+document.getElementById('send-company').addEventListener('change',async function(){
+  if(!this.value)return;
+  const d=await api('/api/emails?company='+encodeURIComponent(this.value));
+  if(d.emails&&d.emails.length>0)document.getElementById('send-email').value=d.emails[0].email;
+});
+
+document.getElementById('btn-send').addEventListener('click',async function(){
+  const company=document.getElementById('send-company').value;
+  const email=document.getElementById('send-email').value.trim();
+  const subject=document.getElementById('send-subject').value;
+  const body=document.getElementById('send-body').value;
+  const cvSelect=document.getElementById('send-cv');
+  const cvIds=[...cvSelect.selectedOptions].map(o=>o.value).filter(v=>v).join(',');
+  if(!company||!email)return alert('Select company and email!');
+  this.disabled=true;this.textContent='Sending...';
+  const r=await api('/api/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({company,email,subject,body,cvId:cvIds})});
+  this.disabled=false;this.textContent='Send Email';
+  document.getElementById('send-status').textContent=r.ok?'Sent! ('+(r.messageId||'').slice(0,15)+'...)':'Error: '+r.error;
+  if(r.ok)loadLog();
+});
+
+async function loadSmtp(){
+  const d=await api('/api/smtp/config');
+  const host=d.config?.host||'smtp.gmail.com';
+  const port=d.config?.port||587;
+  document.getElementById('smtp-host').value=host;
+  document.getElementById('smtp-port').value=port;
+  document.getElementById('smtp-username').value=d.config?.username||'';
+  document.getElementById('smtp-from-email').value=d.config?.fromEmail||'';
+  document.getElementById('smtp-from-name').value=d.config?.fromName||'';
+  const el=document.getElementById('status-badge');
+  el.textContent=d.config?.host?'Configured':'Not configured';
+  el.style.color=d.config?.host?'#28a745':'#dc3545';
+}
+
+document.getElementById('btn-save-smtp').addEventListener('click',async function(){
+  const r=await api('/api/smtp/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    host:document.getElementById('smtp-host').value.trim(),
+    port:parseInt(document.getElementById('smtp-port').value)||587,
+    username:document.getElementById('smtp-username').value.trim(),
+    password:document.getElementById('smtp-password').value,
+    fromEmail:document.getElementById('smtp-from-email').value.trim(),
+    fromName:document.getElementById('smtp-from-name').value.trim()
+  })});
+  document.getElementById('smtp-status').textContent=r.ok?'Saved!':'Error: '+r.error;
+  loadSmtp();
+});
+
+document.getElementById('btn-test-smtp').addEventListener('click',async function(){
+  this.disabled=true;document.getElementById('smtp-status').textContent='Testing...';
+  const r=await api('/api/smtp/test',{method:'POST'});
+  document.getElementById('smtp-status').textContent=r.ok?'Connected!' :'Failed: '+r.error;
+  this.disabled=false;
+});
+
+document.getElementById('btn-upload-cv').addEventListener('click',async function(){
+  const files=document.getElementById('cv-file').files;
+  if(!files.length)return alert('Select file(s)!');
+  for(const file of files){
+    const fd=new FormData();fd.append('cv',file);
+    await api('/api/cv/upload',{method:'POST',body:fd});
+  }
+  document.getElementById('cv-file').value='';
+  loadCvList();loadCompose();
+});
+
+async function loadCvList(){
+  const d=await api('/api/cv/list');
+  const list=document.getElementById('cv-list');
+  list.innerHTML='';
+  (d.files||[]).forEach(f=>{
+    const div=document.createElement('div');
+    div.textContent=f.originalName+' ';
+    const btn=document.createElement('button');
+    btn.textContent='X';
+    btn.style.cssText='font-size:11px;padding:2px 6px;border:1px solid #dc3545;border-radius:4px;color:#dc3545;background:transparent;cursor:pointer;margin-left:6px;';
+    btn.onclick=()=>deleteCv(f.id);
+    div.appendChild(btn);
+    list.appendChild(div);
+  });
+}
+async function deleteCv(id){await api('/api/cv/'+id,{method:'DELETE'});loadCvList();loadCompose();}
+
+async function loadLog(){
+  const d=await api('/api/send/log');
+  const stats=d.stats||[];
+  const sent=stats.find(s=>s.status==='sent');
+  const failed=stats.find(s=>s.status==='failed');
+  document.getElementById('log-summary').textContent='Sent: '+(sent?.count||0)+' | Failed: '+(failed?.count||0)+' | Total: '+(d.logs||[]).length;
+  document.getElementById('log-list').innerHTML=(d.logs||[]).map(l=>'<div class="log-item"><span class="'+(l.status==='sent'?'sent-color':'failed-color')+'">'+(l.status==='sent'?'Sent':'Failed')+'</span> <b>'+esc(l.company)+'</b> <span style="color:#666;">'+esc(l.email)+'</span> <span style="color:#999;font-size:11px;">'+esc(l.subject).slice(0,40)+'</span> <span style="color:#999;font-size:11px;">'+l.sentAt?.slice(0,10)+'</span></div>').join('');
+}
+
+document.getElementById('btn-clear-log').addEventListener('click',async function(){if(confirm('Clear log?')){await api('/api/send/log',{method:'DELETE'});loadLog();}});
+
+loadSmtp();loadCompose();loadCvList();loadLog();
+</script>
+</body>
+</html>

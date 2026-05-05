@@ -183,12 +183,19 @@ async function waitForContent() {
 function handleMessage(message, sender, sendResponse) {
   switch (message.type) {
     case 'PING':
+      const isEmailSearch = window.location.hostname.includes('google.com') && 
+        window.location.pathname.includes('search') && 
+        !window.location.search.includes('udm=8');
+      const foundEmails = isEmailSearch ? extractEmailsFromPage() : [];
       sendResponse({
         ok: true,
         platform: currentPlatform ? currentPlatform.id : null,
         platformName: currentPlatform ? currentPlatform.name : null,
         url: window.location.href,
-        isJobPage: currentPlatform ? isJobPage(window.location.href) : false
+        isJobPage: currentPlatform ? isJobPage(window.location.href) : false,
+        isEmailSearch,
+        emailCount: foundEmails.length,
+        emails: foundEmails.slice(0, 20)
       });
       return;
 
@@ -368,9 +375,59 @@ function detectAndNotify(url) {
   }
 }
 
+async function autoFindEmails() {
+  const url = window.location.href;
+  if (!url.includes('google.com/search') || url.includes('udm=8')) return;
+
+  const params = new URLSearchParams(window.location.search);
+  const query = (params.get('q') || '').toLowerCase().trim();
+  if (!query.includes('email tuyển dụng') && !query.includes('email tuyen dung')) return;
+
+  const SERVER = 'http://localhost:3000';
+  const companyQuery = query.replace(/email tuyển dụng|email tuyen dung|email|tuyển dụng|hr|recruitment/gi, '').trim();
+  const companyName = companyQuery.split(/[+-]/).map(s => s.trim()).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+  if (!companyName) return;
+
+  console.log('[CV Crawler] auto email search for:', companyName);
+
+  await scrollToBottom();
+  await sleep(1000);
+
+  const emails = extractEmailsFromPage();
+  console.log('[CV Crawler] found emails:', emails);
+
+  if (emails.length === 0) {
+    chrome.runtime.sendMessage({ type: 'CLOSE_THIS_TAB' });
+    return;
+  }
+
+  try {
+    const payload = emails.map(email => ({
+      email,
+      company: companyName,
+      source: url
+    }));
+    const response = await fetch(SERVER + '/api/emails/batch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails: payload })
+    });
+    const result = await response.json();
+    console.log('[CV Crawler] saved emails:', result);
+  } catch (err) {
+    console.log('[CV Crawler] save error:', err.message);
+  }
+
+  chrome.runtime.sendMessage({ type: 'CLOSE_THIS_TAB' });
+}
+
 (function init() {
   console.log('[CV Crawler] content script loaded on:', window.location.href);
   detectAndNotify(window.location.href);
+
+  if (window.location.href.includes('google.com/search') && !window.location.href.includes('udm=8')) {
+    setTimeout(autoFindEmails, 3000);
+  }
 
   let lastUrl = window.location.href;
   const urlObserver = new MutationObserver(() => {
