@@ -13,6 +13,8 @@ const UPLOAD_DIR = join(__dirname, 'uploads');
 
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
+const EMAIL_TEMPLATE = fs.readFileSync(join(__dirname, '..', 'template.html'), 'utf-8');
+
 const storage = multer.diskStorage({
   destination: UPLOAD_DIR,
   filename: (req, file, cb) => {
@@ -186,7 +188,7 @@ app.get('/api/stats', (req, res) => {
 app.get('/api/companies', (req, res) => {
   try {
     const companies = db.prepare(`
-      SELECT LOWER(TRIM(j.company)) as name, MIN(j.crawledAt) as firstSeen,
+      SELECT TRIM(j.company) as name, MIN(j.crawledAt) as firstSeen,
         (SELECT COUNT(*) FROM emails e WHERE LOWER(TRIM(e.company)) = LOWER(TRIM(j.company))) as emailCount
       FROM jobs j GROUP BY LOWER(TRIM(j.company))
       ORDER BY emailCount ASC, name ASC
@@ -361,28 +363,14 @@ app.delete('/api/cv/:id', (req, res) => {
 });
 
 // ─── Send Email ───
-function bodyToHtml(text) {
-  const escaped = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-  const withBold = escaped.replace(/\*\*(.+?)\*\*/g, '<b>$1</b>');
-  const withItalic = withBold.replace(/\*(.+?)\*/g, '<i>$1</i>');
-  const withBullets = withItalic.replace(/^▸\s(.+)$/gm, '<li>$1</li>');
-  const withHr = withBullets.replace(/^---$/gm, '<hr style="border:none;border-top:1px solid #ddd;margin:16px 0;">');
-  const paragraphs = withHr.split('\n').map(line => {
-    const trimmed = line.trim();
-    if (!trimmed) return '<br>';
-    if (trimmed.startsWith('<li>')) return trimmed;
-    if (trimmed.startsWith('<hr')) return trimmed;
-    return `<p style="margin:6px 0;">${trimmed}</p>`;
-  }).join('\n');
-  return paragraphs;
-}
+
+app.get('/api/template', (req, res) => {
+  res.json({ ok: true, html: EMAIL_TEMPLATE });
+});
 
 app.post('/api/send', async (req, res) => {
   try {
-    const { company, email, subject, body, cvId } = req.body;
+    const { company, email, role, subject, body, cvId } = req.body;
     if (!company || !email) return res.json({ ok: false, error: 'Missing company or email' });
 
     const config = db.prepare('SELECT * FROM smtp_config WHERE id = 1').get();
@@ -393,9 +381,12 @@ app.post('/api/send', async (req, res) => {
       auth: { user: config.username, pass: config.password }
     });
 
-    const finalSubject = (subject || 'Application for Position at {{company}}').replace(/\{\{company\}\}/g, company);
-    const rawBody = (body || 'Dear HR of {{company}},...').replace(/\{\{company\}\}/g, company);
-    const finalBody = bodyToHtml(rawBody);
+    const r = (s) => s
+      .replace(/\{\{company\}\}/gi, company)
+      .replace(/\{\{role\}\}/gi, role || 'the position');
+
+    const finalSubject = r(subject || 'Application for Position at {{company}}');
+    const finalBody = r(EMAIL_TEMPLATE);
 
     const attachments = [];
     if (cvId) {
@@ -415,28 +406,7 @@ app.post('/api/send', async (req, res) => {
       from: `"${config.fromName || config.username}" <${config.fromEmail || config.username}>`,
       to: email,
       subject: finalSubject,
-      html: `<!DOCTYPE html>
-<html>
-<head><meta charset="UTF-8"></head>
-<body style="margin:0;padding:0;background:#f4f6f8;">
-<table width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:30px 10px;">
-  <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,0.08);">
-    <tr><td style="padding:30px 30px 10px 30px;border-bottom:3px solid #1a73e8;">
-      <h1 style="margin:0;font-family:Segoe UI,Arial,sans-serif;font-size:22px;color:#1a73e8;font-weight:700;">Job Application</h1>
-      <p style="margin:4px 0 0;font-family:Segoe UI,Arial,sans-serif;font-size:13px;color:#888;">Automated via AutoCV System</p>
-    </td></tr>
-    <tr><td style="padding:30px;font-family:Segoe UI,Arial,sans-serif;font-size:14px;line-height:1.7;color:#333;">
-      ${finalBody}
-    </td></tr>
-    <tr><td style="padding:20px 30px;background:#f8f9fa;border-top:1px solid #e9ecef;border-radius:0 0 12px 12px;">
-      <p style="margin:0;font-family:Segoe UI,Arial,sans-serif;font-size:11px;color:#999;text-align:center;">
-        This email was sent via <b style="color:#1a73e8;">AutoCV</b> — Intelligent Job Application System
-      </p>
-    </td></tr>
-  </table>
-</td></tr></table>
-</body>
-</html>`,
+      html: finalBody,
       attachments
     });
 

@@ -132,24 +132,16 @@
       const statusEl = document.getElementById('batch-status');
       statusEl.classList.remove('hidden');
       let done = 0;
-      const batchSize = 5;
 
-      for (let i = 0; i < withoutEmail.length; i += batchSize) {
-        const batch = withoutEmail.slice(i, i + batchSize);
-        for (const c of batch) {
-          done++;
-          statusEl.innerHTML = `🔍 Đang mở <b>${esc(c.name)}</b> (${done}/${withoutEmail.length})...`;
-          const urlData = await api(`/api/companies/search-url?company=${encodeURIComponent(c.name)}`);
-          if (urlData.ok) window.open(urlData.url, '_blank');
-          await new Promise(r => setTimeout(r, 800));
-        }
-        if (i + batchSize < withoutEmail.length) {
-          statusEl.innerHTML += `<br>⏸ Chờ 3s trước lô tiếp theo...`;
-          await new Promise(r => setTimeout(r, 3000));
-        }
+      for (const c of withoutEmail) {
+        done++;
+        statusEl.innerHTML = `🔍 Đang xử lý <b>${esc(c.name)}</b> (${done}/${withoutEmail.length})...`;
+        const urlData = await api(`/api/companies/search-url?company=${encodeURIComponent(c.name)}`);
+        if (urlData.ok) window.open(urlData.url, '_blank');
+        await new Promise(r => setTimeout(r, 20000));
       }
 
-      statusEl.innerHTML = `✅ Đã mở ${done} tab! Extension sẽ tự động: quét email → lưu server → đóng tab.`;
+      statusEl.innerHTML = `✅ Hoàn tất ${done} công ty!`;
     });
 
     load();

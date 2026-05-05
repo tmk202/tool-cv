@@ -59,41 +59,11 @@
 
     <div id="tab-compose" class="tab-content active">
       <div class="card">
-        <div class="form-row"><label>Company</label><select id="send-company"><option value="">Select...</option></select></div>
+        <div class="form-row"><label>Company</label><select id="send-company"><option value="">Select...</option></select><input type="text" id="send-company-manual" placeholder="Or type manually" style="flex:0.5;"></div>
         <div class="form-row"><label>Email</label><input type="email" id="send-email" placeholder="hr@company.com"></div>
-        <div class="form-row"><label>Subject</label><input type="text" id="send-subject" value="Application for Position at {{company}}"></div>
-        <div class="form-row"><label>Body</label><textarea id="send-body" style="min-height:200px;font-family:monospace;">---
-subject: [Job Application] Senior Position at {{company}}
-to: {{email}}
-attachments: CV.pdf
-
----
-
-**Dear HR Team at {{company}},**
-
-I hope this message finds you well.
-
-I am writing to express my strong interest in joining **{{company}}**. With my background in **Automation & Software Engineering**, I believe I can contribute meaningfully to your team.
-
-**Key Highlights:**
-
-▸ **Experience:** [X] years in automation, testing, and software development
-▸ **Tech Stack:** Python, Selenium, Playwright, CI/CD, Docker, SQL
-▸ **Achievements:** Built scalable test frameworks, reduced testing time by [X]%
-▸ **Languages:** English, Vietnamese
-
-I have attached my **CV** for your detailed review. I would welcome the opportunity to discuss how my skills align with the needs of {{company}}.
-
-Looking forward to hearing from you.
-
-**Best regards,**
-**[Your Full Name]**
-**[Your Phone Number]**
-**[Your LinkedIn URL]**
-
----
-
-*This application was submitted via **AutoCV** — an intelligent job application automation system.*</textarea></div>
+        <div class="form-row"><label>Role</label><input type="text" id="send-role" placeholder="Ví dụ: Full-stack Developer" style="flex:1;"></div>
+        <div class="form-row"><label>Subject</label><input type="text" id="send-subject" value="Ứng tuyển vị trí {{role}} tại {{Company}}"></div>
+        <div class="form-row"><label>Body</label><textarea id="send-body" style="min-height:200px;font-family:monospace;" readonly>Loading...</textarea></div>
         <div class="form-row"><label>CV</label><select id="send-cv" multiple style="min-height:60px;"><option value="">No CV</option></select><span style="font-size:11px;color:#888;align-self:flex-end;">Ctrl+click to select multiple</span></div>
         <div class="form-row"><label></label><button id="btn-send" class="btn-primary">Send Email</button><span id="send-status" style="font-size:13px;color:#666;align-self:center;"></span></div>
       </div>
@@ -151,22 +121,38 @@ async function loadCompose(){
   cv.value='';
 }
 
+function cleanRole(title) {
+  return title
+    .replace(/(lương|mức lương|thu nhập|upto|up to|tới|đến)\s*[\d.,\s]*[trtriệutriệukmk\$]+\s*/gi, '')
+    .replace(/[\d.,]+\s*[-–to]+\s*[\d.,]*\s*[trtriệutriệukmk\$]+\s*/gi, '')
+    .replace(/thương lượng|negotiable/gi, '')
+    .replace(/\s+/g, ' ').trim();
+}
+
 document.getElementById('send-company').addEventListener('change',async function(){
   if(!this.value)return;
-  const d=await api('/api/emails?company='+encodeURIComponent(this.value));
+  const [d, jobs] = await Promise.all([
+    api('/api/emails?company='+encodeURIComponent(this.value)),
+    api('/api/jobs?company='+encodeURIComponent(this.value)+'&limit=5')
+  ]);
   if(d.emails&&d.emails.length>0)document.getElementById('send-email').value=d.emails[0].email;
+  if(jobs.jobs && jobs.jobs.length > 0) {
+    const titles = [...new Set(jobs.jobs.map(j => cleanRole(j.title)).filter(Boolean))];
+    if (titles.length > 0) document.getElementById('send-role').value = titles[0];
+  }
 });
 
 document.getElementById('btn-send').addEventListener('click',async function(){
-  const company=document.getElementById('send-company').value;
+  const company=document.getElementById('send-company').value || document.getElementById('send-company-manual').value.trim() || 'Test Company';
   const email=document.getElementById('send-email').value.trim();
+  const role=document.getElementById('send-role').value.trim();
   const subject=document.getElementById('send-subject').value;
   const body=document.getElementById('send-body').value;
   const cvSelect=document.getElementById('send-cv');
   const cvIds=[...cvSelect.selectedOptions].map(o=>o.value).filter(v=>v).join(',');
-  if(!company||!email)return alert('Select company and email!');
+  if(!email)return alert('Enter email!');
   this.disabled=true;this.textContent='Sending...';
-  const r=await api('/api/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({company,email,subject,body,cvId:cvIds})});
+  const r=await api('/api/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({company,email,role,subject,body,cvId:cvIds})});
   this.disabled=false;this.textContent='Send Email';
   document.getElementById('send-status').textContent=r.ok?'Sent! ('+(r.messageId||'').slice(0,15)+'...)':'Error: '+r.error;
   if(r.ok)loadLog();
@@ -246,6 +232,7 @@ async function loadLog(){
 document.getElementById('btn-clear-log').addEventListener('click',async function(){if(confirm('Clear log?')){await api('/api/send/log',{method:'DELETE'});loadLog();}});
 
 loadSmtp();loadCompose();loadCvList();loadLog();
+(async function(){const d=await api('/api/template');if(d.ok)document.getElementById('send-body').value=d.html})();
 </script>
 </body>
 </html>

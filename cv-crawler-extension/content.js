@@ -376,49 +376,49 @@ function detectAndNotify(url) {
 }
 
 async function autoFindEmails() {
-  const url = window.location.href;
-  if (!url.includes('google.com/search') || url.includes('udm=8')) return;
-
-  const params = new URLSearchParams(window.location.search);
-  const query = (params.get('q') || '').toLowerCase().trim();
-  if (!query.includes('email tuyển dụng') && !query.includes('email tuyen dung')) return;
-
-  const SERVER = 'http://localhost:3000';
-  const companyQuery = query.replace(/email tuyển dụng|email tuyen dung|email|tuyển dụng|hr|recruitment/gi, '').trim();
-  const companyName = companyQuery.split(/[+-]/).map(s => s.trim()).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
-  if (!companyName) return;
-
-  console.log('[CV Crawler] auto email search for:', companyName);
-
-  await scrollToBottom();
-  await sleep(1000);
-
-  const emails = extractEmailsFromPage();
-  console.log('[CV Crawler] found emails:', emails);
-
-  if (emails.length === 0) {
-    chrome.runtime.sendMessage({ type: 'CLOSE_THIS_TAB' });
-    return;
-  }
+  let shouldClose = false;
 
   try {
-    const payload = emails.map(email => ({
-      email,
-      company: companyName,
-      source: url
-    }));
-    const response = await fetch(SERVER + '/api/emails/batch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ emails: payload })
-    });
-    const result = await response.json();
-    console.log('[CV Crawler] saved emails:', result);
+    const url = window.location.href;
+    if (!url.includes('google.com/search') || url.includes('udm=8')) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const query = (params.get('q') || '').toLowerCase().trim();
+    if (!query.includes('email tuyển dụng') && !query.includes('email tuyen dung')) return;
+
+    const companyQuery = query.replace(/email tuyển dụng|email tuyen dung|email|tuyển dụng|hr|recruitment/gi, '').trim();
+    const companyName = companyQuery.split(/[+-]/).map(s => s.trim()).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    if (!companyName) return;
+
+    shouldClose = true;
+    console.log('[CV Crawler] auto email search for:', companyName);
+
+    await scrollToBottom();
+    await sleep(1000);
+
+    const emails = extractEmailsFromPage();
+    console.log('[CV Crawler] found emails:', emails);
+
+    if (emails.length > 0) {
+      for (const email of emails) {
+        try {
+          await fetch('http://localhost:3000/api/emails', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ company: companyName, email, source: url })
+          });
+        } catch (err) {
+          console.log('[CV Crawler] save error:', err.message);
+        }
+      }
+    }
   } catch (err) {
-    console.log('[CV Crawler] save error:', err.message);
+    console.log('[CV Crawler] autoFindEmails error:', err.message);
   }
 
-  chrome.runtime.sendMessage({ type: 'CLOSE_THIS_TAB' });
+  if (shouldClose) {
+    chrome.runtime.sendMessage({ type: 'CLOSE_THIS_TAB' });
+  }
 }
 
 (function init() {
