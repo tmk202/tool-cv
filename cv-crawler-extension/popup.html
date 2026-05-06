@@ -77,6 +77,21 @@
       <button id="btn-save-emails" class="btn-primary" style="margin-top:6px;font-size:12px;padding:6px;">💾 Save to Server</button>
     </section>
 
+    <section id="batch-section">
+      <div class="section-header">
+        <h2>⚡ Batch Find Emails</h2>
+        <span id="batch-status-icon">⏹</span>
+      </div>
+      <div class="control-row">
+        <button id="btn-batch-start" class="btn-primary">▶ Start Batch</button>
+        <button id="btn-batch-stop" class="btn-danger" disabled>⏹ Stop</button>
+      </div>
+      <div id="batch-status" class="status-bar hidden">
+        <span id="batch-status-text">Đang chạy...</span>
+        <div class="progress-bar"><div id="batch-progress-fill"></div></div>
+      </div>
+    </section>
+
     <section id="server-section">
       <div class="section-header">
         <h2>Server</h2>

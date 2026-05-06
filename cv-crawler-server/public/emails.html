@@ -33,6 +33,7 @@
         <a href="/emails.html">📧 Company Emails</a>
       </div>
       <button id="btn-batch-find" class="btn-primary" style="font-size:12px;padding:6px 12px;">🚀 Batch Find Emails</button>
+      <button id="btn-clear-emails" class="btn-danger-outline" style="font-size:12px;padding:6px 12px;">🗑 Clear All Emails</button>
     </div>
     <input type="text" id="search-box" placeholder="Search company..." autocomplete="off">
     <div id="company-list"></div>
@@ -70,7 +71,7 @@
 
       const container = document.getElementById('company-list');
       container.innerHTML = list.map(c => {
-        const key = c.name;
+        const key = c.name.toLowerCase().trim();
         const emails = emailsByCompany[key] || [];
         const emailStr = emails.length > 0
           ? emails.map(e => `<span class="email-badge">${esc(e)}</span>`).join('')
@@ -84,8 +85,8 @@
             </div>
             <div class="company-actions">
               <div style="display:flex;gap:4px;align-items:center">
-                <input class="email-input" placeholder="Add email..." id="inp-${esc(key)}">
-                <button class="btn-tiny btn-primary" onclick="addEmail('${esc(key)}')">+</button>
+                <input class="email-input" placeholder="Add email..." data-company="${esc(key)}">
+                <button class="btn-tiny btn-primary" onclick="addEmail(this)">+</button>
               </div>
               <button class="btn-tiny btn-secondary" onclick="searchEmail('${esc(key)}')">🔍 Search</button>
               <button class="btn-tiny btn-danger-outline" onclick="deleteEmails('${esc(key)}')">🗑</button>
@@ -95,8 +96,9 @@
       }).join('');
     }
 
-    async function addEmail(company) {
-      const input = document.getElementById('inp-' + company);
+    async function addEmail(btn) {
+      const input = btn.parentElement.querySelector('.email-input');
+      const company = input.dataset.company;
       const email = input.value.trim();
       if (!email) return alert('Nhập email!');
       if (!email.includes('@')) return alert('Email không hợp lệ!');
@@ -123,6 +125,12 @@
     }
 
     document.getElementById('search-box').addEventListener('input', load);
+
+    document.getElementById('btn-clear-emails').addEventListener('click', async () => {
+      if (!confirm('Xoá tất cả emails đã lưu?')) return;
+      await api('/api/emails', { method: 'DELETE' });
+      load();
+    });
 
     document.getElementById('btn-batch-find').addEventListener('click', async () => {
       const companies = await api('/api/companies');

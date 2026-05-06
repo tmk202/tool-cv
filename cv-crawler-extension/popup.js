@@ -61,18 +61,12 @@ async function detectCurrentPlatform() {
     platformNameEl.textContent = 'Google Search';
     platformIconEl.textContent = '📧';
     platformNameEl.style.color = '#28a745';
-    if (debugEl) debugEl.textContent = '';
   } else {
     platformNameEl.textContent = 'Không hỗ trợ';
     platformNameEl.style.color = '#999';
     platformIconEl.textContent = '🚫';
-    if (debugEl) {
-      const url = result && result.url ? result.url : '(unknown)';
-      const err = result && result.error ? result.error : '';
-      debugEl.textContent = `URL: ${url}${err ? '\n' + err : ''}`;
-      debugEl.style.display = 'block';
-    }
   }
+  if (debugEl) { debugEl.textContent = ''; debugEl.style.display = 'none'; }
 
   const emailSection = document.getElementById('email-section');
   const emailCountBadge = document.getElementById('email-count-badge');
@@ -83,6 +77,18 @@ async function detectCurrentPlatform() {
     emailCountBadge.textContent = result.emailCount;
     emailList.innerHTML = result.emails.map(e => `<div>${escapeHtml(e)}</div>`).join('');
     window.__foundEmails = result.emails;
+
+    const saveBtn = document.getElementById('btn-save-emails');
+    const isBatch = result.url && result.url.includes('email tuyển dụng');
+    if (isBatch) {
+      saveBtn.textContent = '⏳ Auto-saving...';
+      saveBtn.disabled = true;
+      setTimeout(() => {
+        saveBtn.textContent = '✅ Auto-saved';
+        saveBtn.disabled = true;
+        setTimeout(() => emailSection.classList.add('hidden'), 2000);
+      }, 2000);
+    }
   } else {
     emailSection.classList.add('hidden');
   }
@@ -163,8 +169,11 @@ function setupEventListeners() {
   document.getElementById('btn-debug').addEventListener('click', dumpDebug);
   document.getElementById('btn-find-emails').addEventListener('click', findEmails);
   document.getElementById('btn-save-emails').addEventListener('click', saveFoundEmails);
+  document.getElementById('btn-batch-start').addEventListener('click', startBatch);
+  document.getElementById('btn-batch-stop').addEventListener('click', stopBatch);
   document.getElementById('supported-platforms').addEventListener('click', showPlatforms);
   loadServerSettings();
+  updateBatchStatus();
 }
 
 async function loadServerSettings() {
@@ -426,6 +435,87 @@ async function findEmails() {
   } catch (err) {
     alert('❌ Lỗi: ' + err.message);
   }
+}
+
+async function startBatch() {
+  const serverUrl = document.getElementById('server-url').value.trim() || 'http://localhost:3000';
+
+  const res = await fetch(serverUrl + '/api/companies');
+  const data = await res.json();
+  if (!data.ok || !data.companies) return alert('Không lấy được danh sách company!');
+
+  const withoutEmail = data.companies.filter(c => c.emailCount === 0);
+  if (withoutEmail.length === 0) return alert('Tất cả company đã có email!');
+
+  const companyNames = withoutEmail.map(c => c.name);
+  const result = await sendMessage({
+    type: 'START_BATCH_EMAIL',
+    companies: companyNames,
+    serverUrl
+  });
+
+  if (!result || !result.ok) {
+    alert('Lỗi khởi động batch: ' + (result?.error || 'Không kết nối được background service'));
+    return;
+  }
+
+  document.getElementById('btn-batch-start').disabled = true;
+  document.getElementById('btn-batch-stop').disabled = false;
+  const statusEl = document.getElementById('batch-status');
+  statusEl.classList.remove('hidden');
+  document.getElementById('batch-status-text').textContent = `Đang xử lý 0/${result.total}...`;
+  document.getElementById('batch-progress-fill').style.width = '0%';
+  document.getElementById('batch-status-icon').textContent = '▶';
+  pollBatchStatus();
+}
+
+async function stopBatch() {
+  await sendMessage({ type: 'ABORT_BATCH' });
+  document.getElementById('btn-batch-start').disabled = false;
+  document.getElementById('btn-batch-stop').disabled = true;
+  document.getElementById('batch-status').classList.add('hidden');
+  document.getElementById('batch-status-icon').textContent = '⏹';
+}
+
+async function updateBatchStatus() {
+  const result = await sendMessage({ type: 'GET_BATCH_STATUS' });
+  if (!result) { setTimeout(pollBatchStatus, 2000); return; }
+
+  if (result.total > 0) {
+    document.getElementById('btn-batch-start').disabled = true;
+    document.getElementById('btn-batch-stop').disabled = result.running ? false : true;
+    const statusEl = document.getElementById('batch-status');
+    statusEl.classList.remove('hidden');
+    const pct = Math.round((result.done / result.total) * 100);
+    document.getElementById('batch-progress-fill').style.width = pct + '%';
+
+    if (result.done >= result.total) {
+      document.getElementById('batch-status-text').textContent = `✅ Hoàn tất! ${result.done}/${result.total}`;
+      document.getElementById('batch-progress-fill').style.width = '100%';
+      document.getElementById('btn-batch-start').disabled = false;
+      document.getElementById('btn-batch-stop').disabled = true;
+      document.getElementById('batch-status-icon').textContent = '✅';
+      setTimeout(() => statusEl.classList.add('hidden'), 5000);
+      return;
+    }
+
+    document.getElementById('batch-status-text').textContent = `Đang xử lý ${result.done}/${result.total}...`;
+    document.getElementById('batch-status-icon').textContent = '▶';
+    setTimeout(pollBatchStatus, 2000);
+  } else if (result.running === false && result.done > 0) {
+    document.getElementById('batch-status-text').textContent = `✅ Hoàn tất! ${result.done} công ty`;
+    document.getElementById('batch-progress-fill').style.width = '100%';
+    document.getElementById('btn-batch-start').disabled = false;
+    document.getElementById('btn-batch-stop').disabled = true;
+    document.getElementById('batch-status-icon').textContent = '✅';
+    const statusEl = document.getElementById('batch-status');
+    statusEl.classList.remove('hidden');
+    setTimeout(() => statusEl.classList.add('hidden'), 5000);
+  }
+}
+
+function pollBatchStatus() {
+  updateBatchStatus();
 }
 
 function showPlatforms(e) {

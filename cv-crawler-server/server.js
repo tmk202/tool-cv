@@ -7,6 +7,24 @@ import multer from 'multer';
 import nodemailer from 'nodemailer';
 import fs from 'fs';
 
+const BLOCKED_DOMAINS = [
+  'topcv.vn', 'itviec.com', 'vietnamworks.com', 'careerviet.vn',
+  'vieclam24h.vn', 'jobsgo.vn', 'topdev.vn', 'glints.com',
+  'linkedin.com', 'facebook.com', 'google.com', 'youtube.com',
+  'example.com'
+];
+function isValidEmail(email) {
+  const domain = (email || '').split('@')[1];
+  if (!domain) return false;
+  if (BLOCKED_DOMAINS.some(d => domain === d || domain.endsWith('.' + d))) return false;
+  return true;
+}
+
+function alreadySent(company, email) {
+  const row = db.prepare("SELECT COUNT(*) as c FROM send_log WHERE LOWER(TRIM(company)) = ? AND LOWER(TRIM(email)) = ? AND status = 'sent'").get(company.toLowerCase().trim(), email.toLowerCase().trim());
+  return row.c > 0;
+}
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
 const UPLOAD_DIR = join(__dirname, 'uploads');
@@ -55,6 +73,8 @@ db.exec(`
     createdAt TEXT NOT NULL DEFAULT ''
   );
   CREATE INDEX IF NOT EXISTS idx_emails_company ON emails(company);
+  DROP INDEX IF EXISTS idx_emails_unique;
+  CREATE INDEX IF NOT EXISTS idx_emails_email ON emails(email);
 
   CREATE TABLE IF NOT EXISTS smtp_config (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -185,6 +205,14 @@ app.get('/api/stats', (req, res) => {
   }
 });
 
+app.get('/api/companies/search-url', (req, res) => {
+  const company = (req.query.company || '').trim();
+  if (!company) return res.json({ ok: false });
+  const url = `https://www.google.com/search?q=${encodeURIComponent(company + ' email tuyển dụng')}`;
+  console.log('[EMAIL] search-url:', company, '→', url.slice(0, 80));
+  res.json({ ok: true, url });
+});
+
 app.get('/api/companies', (req, res) => {
   try {
     const companies = db.prepare(`
@@ -218,8 +246,14 @@ app.post('/api/emails', (req, res) => {
   try {
     const { company, email, source } = req.body;
     if (!company || !email) return res.json({ ok: false, error: 'Missing company or email' });
+    if (!isValidEmail(email)) return res.json({ ok: true, id: null, skipped: true });
+    const normalizedCompany = company.trim().toLowerCase();
+    const normalizedEmail = email.trim().toLowerCase();
+    const existing = db.prepare('SELECT COUNT(*) as c FROM emails WHERE company = ? AND email = ?').get(normalizedCompany, normalizedEmail);
+    if (existing.c > 0) return res.json({ ok: true, id: null, skipped: true });
     const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
-    db.prepare('INSERT OR IGNORE INTO emails (id, company, email, source, verified, createdAt) VALUES (?, ?, ?, ?, 0, ?)').run(id, company.trim(), email.trim(), (source || '').trim(), new Date().toISOString());
+    db.prepare('INSERT INTO emails (id, company, email, source, verified, createdAt) VALUES (?, ?, ?, ?, 0, ?)').run(id, normalizedCompany, normalizedEmail, (source || '').trim(), new Date().toISOString());
+    console.log('[EMAIL] saved:', normalizedCompany, '→', normalizedEmail);
     res.json({ ok: true, id });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -230,18 +264,25 @@ app.post('/api/emails/batch', (req, res) => {
   try {
     const { emails } = req.body;
     if (!Array.isArray(emails) || emails.length === 0) return res.json({ ok: false, error: 'No emails' });
-    const insert = db.prepare('INSERT OR IGNORE INTO emails (id, company, email, source, verified, createdAt) VALUES (?, ?, ?, ?, 0, ?)');
+    const insert = db.prepare('INSERT INTO emails (id, company, email, source, verified, createdAt) VALUES (?, ?, ?, ?, 0, ?)');
+    const check = db.prepare('SELECT COUNT(*) as c FROM emails WHERE company = ? AND email = ?');
     const batch = db.transaction((items) => {
       let added = 0;
       for (const item of items) {
         if (!item.company || !item.email) continue;
+        if (!isValidEmail(item.email)) continue;
+        const normalCompany = item.company.trim().toLowerCase();
+        const normalEmail = item.email.trim().toLowerCase();
+        const existing = check.get(normalCompany, normalEmail);
+        if (existing.c > 0) continue;
         const id = Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
-        const r = insert.run(id, item.company.trim(), item.email.trim(), (item.source || '').trim(), new Date().toISOString());
-        if (r.changes > 0) added++;
+        insert.run(id, normalCompany, normalEmail, (item.source || '').trim(), new Date().toISOString());
+        added++;
       }
       return added;
     });
     const added = batch(emails);
+    console.log('[EMAIL] batch saved:', added, '/', emails.length);
     res.json({ ok: true, added });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
@@ -260,13 +301,6 @@ app.delete('/api/emails', (req, res) => {
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
-});
-
-app.get('/api/companies/search-url', (req, res) => {
-  const company = (req.query.company || '').trim();
-  if (!company) return res.json({ ok: false });
-  const url = `https://www.google.com/search?q=${encodeURIComponent(company + ' email tuyển dụng')}`;
-  res.json({ ok: true, url });
 });
 
 app.delete('/api/jobs', (req, res) => {
@@ -370,8 +404,12 @@ app.get('/api/template', (req, res) => {
 
 app.post('/api/send', async (req, res) => {
   try {
-    const { company, email, role, subject, body, cvId } = req.body;
-    if (!company || !email) return res.json({ ok: false, error: 'Missing company or email' });
+    const { company, emails, email, role, subject, body, cvId, force } = req.body;
+    const toList = emails || (email ? [email] : []);
+    if (!company || toList.length === 0) return res.json({ ok: false, error: 'Missing company or email' });
+
+    const unsent = toList.filter(e => force || !alreadySent(company, e));
+    if (unsent.length === 0) return res.json({ ok: true, skipped: true, message: 'Already sent to all recipients' });
 
     const config = db.prepare('SELECT * FROM smtp_config WHERE id = 1').get();
     if (!config || !config.host) return res.json({ ok: false, error: 'No SMTP config. Configure in Send page.' });
@@ -381,12 +419,11 @@ app.post('/api/send', async (req, res) => {
       auth: { user: config.username, pass: config.password }
     });
 
-    const r = (s) => s
-      .replace(/\{\{company\}\}/gi, company)
-      .replace(/\{\{role\}\}/gi, role || 'the position');
+    const vars = { company, role: role || 'Software Engineer | AI & Automation Specialist' };
+    const r = (s) => s.replace(/\{\{(\w+)\}\}/gi, (_, k) => vars[k.toLowerCase()] || `{{${k}}}`);
 
-    const finalSubject = r(subject || 'Application for Position at {{company}}');
-    const finalBody = r(EMAIL_TEMPLATE);
+    const finalSubject = r(subject || 'Application for {{role}} at {{company}}');
+    const finalBody = r(body || EMAIL_TEMPLATE);
 
     const attachments = [];
     if (cvId) {
@@ -402,24 +439,107 @@ app.post('/api/send', async (req, res) => {
       }
     }
 
+    const toStr = unsent.join(',');
     const info = await transporter.sendMail({
       from: `"${config.fromName || config.username}" <${config.fromEmail || config.username}>`,
-      to: email,
+      to: toStr,
       subject: finalSubject,
       html: finalBody,
       attachments
     });
 
+    console.log('[EMAIL] sent:', company, '→', toStr.slice(0, 80), '| subject:', finalSubject.slice(0, 40));
     const logId = Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
     db.prepare('INSERT INTO send_log (id, company, email, subject, cvFile, status, error, sentAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(logId, company, email, finalSubject, cvId || '', 'sent', '', new Date().toISOString());
+      .run(logId, company, toStr, finalSubject, cvId || '', 'sent', '', new Date().toISOString());
 
-    res.json({ ok: true, messageId: info.messageId, logId });
+    res.json({ ok: true, messageId: info.messageId, logId, skipped: toList.length - unsent.length });
   } catch (err) {
+    console.log('[EMAIL] send failed:', req.body.company, '→', err.message);
     const logId = Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
+    const errEmail = (req.body.emails || [req.body.email]).filter(Boolean).join(',') || '';
     db.prepare('INSERT INTO send_log (id, company, email, subject, cvFile, status, error, sentAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(logId, req.body.company || '', req.body.email || '', req.body.subject || '', req.body.cvId || '', 'failed', err.message, new Date().toISOString());
+      .run(logId, req.body.company || '', errEmail, req.body.subject || '', req.body.cvId || '', 'failed', err.message, new Date().toISOString());
     res.json({ ok: false, error: err.message, logId });
+  }
+});
+
+app.post('/api/send/batch', async (req, res) => {
+  try {
+    const { subject, body, cvId } = req.body;
+    const companies = db.prepare(`
+      SELECT DISTINCT LOWER(TRIM(j.company)) as name FROM jobs j
+      INNER JOIN emails e ON LOWER(TRIM(e.company)) = LOWER(TRIM(j.company))
+    `).all();
+    
+    const config = db.prepare('SELECT * FROM smtp_config WHERE id = 1').get();
+    if (!config || !config.host) return res.json({ ok: false, error: 'No SMTP config' });
+
+    const transporter = nodemailer.createTransport({
+      host: config.host, port: config.port, secure: config.port === 465,
+      auth: { user: config.username, pass: config.password }
+    });
+
+    const attachments = [];
+    if (cvId) {
+      const ids = cvId.split(',');
+      for (const id of ids) {
+        const cv = db.prepare('SELECT * FROM cv_files WHERE id = ?').get(id.trim());
+        if (cv) {
+          const cvPath = join(UPLOAD_DIR, cv.filename);
+          if (fs.existsSync(cvPath)) {
+            attachments.push({ filename: cv.originalName, path: cvPath });
+          }
+        }
+      }
+    }
+
+    function getRoleForCompany(company) {
+  const job = db.prepare("SELECT title FROM jobs WHERE LOWER(TRIM(company)) = ? AND title != 'N/A' ORDER BY crawledAt DESC LIMIT 1").get(company.toLowerCase().trim());
+  if (!job || !job.title) return 'Software Engineer | AI & Automation Specialist';
+  let role = job.title.replace(/(lương|mức lương|thu nhập|upto|up to|tới|đến)\s*[\d.,\s]*[trtriệutriệukmk\$]+\s*/gi, '')
+    .replace(/[\d.,]+\s*[-–to]+\s*[\d.,]*\s*[trtriệutriệukmk\$]+\s*/gi, '')
+    .replace(/thương lượng|negotiable/gi, '').replace(/\s+/g, ' ').trim();
+  return role || 'Software Engineer | AI & Automation Specialist';
+}
+
+let sent = 0, failed = 0, skipped = 0;
+    for (const c of companies) {
+      const company = c.name;
+      const role = getRoleForCompany(company);
+      const emails = db.prepare('SELECT email FROM emails WHERE LOWER(TRIM(company)) = ?').all(company);
+      const toList = emails.map(e => e.email).filter(Boolean);
+      if (toList.length === 0) continue;
+
+      const unsent = toList.filter(e => !alreadySent(company, e));
+      if (unsent.length === 0) { skipped++; continue; }
+
+      const vars = { company, role };
+      const r = (s) => s.replace(/\{\{(\w+)\}\}/gi, (_, k) => vars[k.toLowerCase()] || `{{${k}}}`);
+      const toStr = unsent.join(',');
+
+      try {
+        await transporter.sendMail({
+          from: `"${config.fromName || config.username}" <${config.fromEmail || config.username}>`,
+          to: toStr,
+          subject: r(subject || 'Application for {{role}} at {{company}}'),
+          html: r(body || 'Dear HR of {{company}},...'),
+          attachments
+        });
+        sent++;
+        const logId = Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
+        db.prepare('INSERT INTO send_log (id, company, email, subject, cvFile, status, error, sentAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(logId, company, toStr, r(subject || 'Application for {{role}} at {{company}}'), cvId || '', 'sent', '', new Date().toISOString());
+        console.log('[EMAIL] batch sent:', company, '→', toStr.slice(0, 60));
+      } catch (err) {
+        failed++;
+        console.log('[EMAIL] batch failed:', company, err.message);
+      }
+    }
+
+    res.json({ ok: true, sent, failed, skipped, total: companies.length });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 

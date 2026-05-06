@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @page { size: A4; margin: 0; }
+        body {
+            font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f8fafc;
+            color: #1e293b;
+        }
+        .letter-container {
+            width: 210mm;
+            min-height: 297mm;
+            margin: 20px auto;
+            background-color: #ffffff;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* BANNER VỚI SÓNG CONTOUR CUỘN TRÀO BÊN PHẢI */
+        .banner {
+            background-color: #020617;
+            height: 220px;
+            position: relative;
+            display: flex;
+            align-items: center;
+            padding: 0 60px;
+            overflow: hidden;
+        }
+
+        /* Lưới Grid tinh tế */
+        .banner::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+            background-size: 30px 30px;
+            z-index: 1;
+        }
+
+        /* CONTOUR WAVE - HIỆU ỨNG SÓNG TO BÊN PHẢI */
+        .contour-ocean {
+            position: absolute;
+            right: -150px;
+            top: -60%;
+            width: 600px;
+            height: 220%;
+            z-index: 2;
+            opacity: 0.35;
+            background: repeating-linear-gradient(
+                0deg,
+                transparent,
+                transparent 10px,
+                #6366f1 11px,
+                #6366f1 12px
+            );
+            filter: url(#complex-wave);
+            animation: swell 15s infinite alternate ease-in-out;
+        }
+
+        @keyframes swell {
+            0% { transform: translateY(0) rotate(0deg) scaleX(1); }
+            50% { transform: translateY(-20px) rotate(2deg) scaleX(1.1); }
+            100% { transform: translateY(10px) rotate(-1deg) scaleX(1); }
+        }
+
+        .banner-content { position: relative; z-index: 10; color: white; }
+        .banner-text { font-size: 26pt; font-weight: 900; text-transform: uppercase; line-height: 1.1; letter-spacing: -1px; }
+        .banner-decor { position: absolute; right: 60px; z-index: 10; text-align: right; color: white; }
+        .play-icons { font-size: 22px; color: #818cf8; margin-bottom: 8px; letter-spacing: 6px; }
+        .cross-icon { font-size: 100px; font-weight: 900; line-height: 0.8; opacity: 0.8; }
+
+        /* NỘI DUNG THƯ */
+        .content { padding: 60px 80px; flex-grow: 1; }
+        .intro-title { font-size: 22pt; font-weight: 800; color: #0f172a; margin-bottom: 30px; }
+        .letter-body p { margin-bottom: 22px; line-height: 1.9; text-align: justify; color: #334155; font-size: 11.5pt; }
+        .highlight { color: #4f46e5; font-weight: 600; }
+        
+        .philosophy-box {
+            background: #f1f5f9;
+            border-left: 4px solid #6366f1;
+            padding: 20px;
+            margin: 30px 0;
+            font-style: italic;
+            font-size: 12pt;
+            color: #1e293b;
+        }
+
+        .footer-info {
+            margin-top: 50px;
+            padding-top: 30px;
+            border-top: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+        .signature-name { font-size: 16pt; font-weight: 800; text-transform: uppercase; color: #0f172a; }
+        .contact-grid { font-size: 10pt; color: #64748b; text-align: right; line-height: 1.6; }
+    </style>
+</head>
+<body>
+
+    <!-- SVG FILTER CHO SÓNG CONTOUR -->
+    <svg style="display:none">
+        <filter id="complex-wave">
+            <feTurbulence type="fractalNoise" baseFrequency="0.008 0.015" numOctaves="4" result="noise" />
+            <feDisplacementMap in="SourceGraphic" in2="noise" scale="120" />
+        </filter>
+    </svg>
+
+    <div class="letter-container">
+        <div class="banner">
+            <div class="contour-ocean"></div>
+            
+            <div class="banner-content">
+                <div class="banner-text">
+                    Personal <br> Introduction
+                </div>
+            </div>
+
+            <div class="banner-decor">
+                <div class="play-icons">▶▶▶▶</div>
+                <div class="cross-icon">×</div>
+            </div>
+        </div>
+
+        <div class="content">
+            <div class="intro-title">Lời Giới Thiệu</div>
+            
+            <div class="letter-body">
+                <p>Chào bạn, tôi là <span class="highlight">Nguyễn Ngọc Tú</span> – một Kỹ sư Phần mềm chuyên sâu trong lĩnh vực <strong>Tự động hóa AI, Phát triển Full-Stack và Kiến trúc Hệ thống</strong>. Với nền tảng kỹ thuật vững chắc và kinh nghiệm thực chiến, tôi tập trung vào việc tối ưu hóa các quy trình kỹ thuật phức tạp thành những hệ thống tự vận hành hiệu quả.</p>
+
+                <div class="philosophy-box">
+                    “Tôi không chỉ học công nghệ để biết, tôi xây dựng công nghệ để giải quyết các bài toán thực tiễn của cuộc sống và doanh nghiệp.”
+                </div>
+
+                <p>Hành trình nghề nghiệp của tôi ghi dấu ấn qua việc phát triển các nền tảng giáo dục quy mô lớn và các hệ sinh thái nội dung tự động hóa trên những nền tảng số hàng đầu. Tôi tin rằng, sự kết hợp giữa tư duy hệ thống chặt chẽ và sức mạnh của trí tuệ nhân tạo chính là chìa khóa để nâng tầm hiệu suất trong kỷ nguyên số hiện nay.</p>
+                
+                <p>Hy vọng qua lá thư này, bạn sẽ có cái nhìn rõ nét hơn về năng lực cũng như niềm đam mê mà tôi dành cho từng dòng mã nguồn. Rất mong có dịp được kết nối và chia sẻ sâu hơn về những giải pháp đột phá trong tương lai.</p>
+            </div>
+
+            <div class="footer-info">
+                <div class="signature">
+                    Trân trọng,<br><br>
+                    <div class="signature-name">Nguyễn Ngọc Tú</div>
+                </div>
+                <div class="contact-grid">
+                    📍 Hà Nội, Việt Nam<br>
+                    📧 contact@ngoctu.dev<br>
+                    🔗 github.com/ngoctu-dev
+                </div>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>

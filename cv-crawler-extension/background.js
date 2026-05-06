@@ -97,6 +97,48 @@ function escapeCsv(str) {
   return `"${s}"`;
 }
 
+const BATCH_KEY = 'batch_state';
+let _batchTabIds = new Set();
+
+async function getBatch() {
+  const data = await chrome.storage.session.get(BATCH_KEY);
+  return data[BATCH_KEY] || { queue: [], done: 0, total: 0, serverUrl: 'http://localhost:3000' };
+}
+
+async function saveBatch(state) {
+  await chrome.storage.session.set({ [BATCH_KEY]: state });
+}
+
+async function processBatchQueue() {
+  const state = await getBatch();
+  if (state.queue.length === 0) {
+    console.log('[CV Crawler] batch complete:', state.done, '/', state.total);
+    return;
+  }
+  const company = state.queue.shift();
+  state.done++;
+  await saveBatch(state);
+  console.log('[CV Crawler] batch processing:', company, '(' + state.done + '/' + state.total + ')');
+  try {
+    const res = await fetch(state.serverUrl + '/api/companies/search-url?company=' + encodeURIComponent(company));
+    const data = await res.json();
+    if (data.ok && data.url) {
+      const tab = await chrome.tabs.create({ url: data.url, active: false });
+      _batchTabIds.add(tab.id);
+    }
+  } catch (err) {
+    console.log('[CV Crawler] batch error:', company, err.message);
+    setTimeout(() => processBatchQueue(), 500);
+  }
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  if (_batchTabIds.has(tabId)) {
+    _batchTabIds.delete(tabId);
+    setTimeout(() => processBatchQueue(), 1000);
+  }
+});
+
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   switch (message.type) {
     case 'PLATFORM_DETECTED':
@@ -191,6 +233,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (sender.tab?.id) {
         chrome.tabs.remove(sender.tab.id);
       }
+      sendResponse({ ok: true });
+      break;
+
+    case 'START_BATCH_EMAIL': {
+      const companies = message.companies || [];
+      const st = { queue: [...companies], done: 0, total: companies.length, serverUrl: message.serverUrl || 'http://localhost:3000' };
+      saveBatch(st).then(() => { if (companies.length > 0) processBatchQueue(); });
+      sendResponse({ ok: true, total: companies.length });
+      break;
+    }
+
+    case 'GET_BATCH_STATUS':
+      getBatch().then(state => sendResponse({ running: state.queue.length > 0, done: state.done, total: state.total }));
+      return true;
+
+    case 'ABORT_BATCH':
+      saveBatch({ queue: [], done: 0, total: 0, serverUrl: 'http://localhost:3000' }).then(() => _batchTabIds.clear());
       sendResponse({ ok: true });
       break;
 

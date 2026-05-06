@@ -60,12 +60,20 @@
     <div id="tab-compose" class="tab-content active">
       <div class="card">
         <div class="form-row"><label>Company</label><select id="send-company"><option value="">Select...</option></select><input type="text" id="send-company-manual" placeholder="Or type manually" style="flex:0.5;"></div>
-        <div class="form-row"><label>Email</label><input type="email" id="send-email" placeholder="hr@company.com"></div>
-        <div class="form-row"><label>Role</label><input type="text" id="send-role" placeholder="Ví dụ: Full-stack Developer" style="flex:1;"></div>
-        <div class="form-row"><label>Subject</label><input type="text" id="send-subject" value="Ứng tuyển vị trí {{role}} tại {{Company}}"></div>
-        <div class="form-row"><label>Body</label><textarea id="send-body" style="min-height:200px;font-family:monospace;" readonly>Loading...</textarea></div>
+        <div class="form-row"><label>Email(s)</label><select id="send-emails" multiple style="min-height:60px;flex:1;"><option value="">No emails found</option></select><span style="font-size:11px;color:#888;align-self:flex-end;">Ctrl+click to select multiple</span></div>
+        <div class="form-row"><label>Role</label><input type="text" id="send-role" value="Software Engineer | AI & Automation Specialist" style="flex:1;"></div>
+        <div class="form-row"><label>Subject</label><input type="text" id="send-subject" value="Application for {{role}} at {{company}}"></div>
+        <div class="form-row"><label>Body</label><textarea id="send-body" style="min-height:200px;font-family:monospace;" placeholder="Soạn nội dung email...">Dear HR Team,
+
+I am writing to apply for the position of **{{role}}** at **{{company}}**. I have attached my CV for your review.
+
+**Skills & Experience:**
+- ...
+
+Best regards,
+[Your Name]</textarea></div>
         <div class="form-row"><label>CV</label><select id="send-cv" multiple style="min-height:60px;"><option value="">No CV</option></select><span style="font-size:11px;color:#888;align-self:flex-end;">Ctrl+click to select multiple</span></div>
-        <div class="form-row"><label></label><button id="btn-send" class="btn-primary">Send Email</button><span id="send-status" style="font-size:13px;color:#666;align-self:center;"></span></div>
+        <div class="form-row"><label></label><button id="btn-send" class="btn-primary">Send Email</button><button id="btn-send-all" class="btn-secondary">📨 Send to All Companies</button><span id="send-status" style="font-size:13px;color:#666;align-self:center;"></span></div>
       </div>
     </div>
 
@@ -115,7 +123,7 @@ async function loadCompose(){
   const[companies,emails,cvs]=await Promise.all([api('/api/companies'),api('/api/emails'),api('/api/cv/list')]);
   const sel=document.getElementById('send-company');
   const map={};(emails.emails||[]).forEach(e=>{const k=e.company.toLowerCase().trim();if(!map[k])map[k]=[];map[k].push(e.email)});
-  sel.innerHTML='<option value="">Select...</option>'+(companies.companies||[]).map(c=>'<option value="'+esc(c.name)+'">'+esc(c.name)+' ('+(map[c.name]?.length||0)+' emails)</option>').join('');
+  sel.innerHTML='<option value="">Select...</option>'+(companies.companies||[]).map(c=>'<option value="'+esc(c.name)+'">'+esc(c.name)+' ('+(map[c.name.toLowerCase().trim()]?.length||0)+' emails)</option>').join('');
   const cv=document.getElementById('send-cv');
   cv.innerHTML='<option value="">No CV</option>'+(cvs.files||[]).map(f=>'<option value="'+esc(f.id)+'">'+esc(f.originalName)+'</option>').join('');
   cv.value='';
@@ -135,7 +143,13 @@ document.getElementById('send-company').addEventListener('change',async function
     api('/api/emails?company='+encodeURIComponent(this.value)),
     api('/api/jobs?company='+encodeURIComponent(this.value)+'&limit=5')
   ]);
-  if(d.emails&&d.emails.length>0)document.getElementById('send-email').value=d.emails[0].email;
+  const emailSel = document.getElementById('send-emails');
+  if(d.emails&&d.emails.length>0){
+    emailSel.innerHTML = d.emails.map(e => '<option value="'+esc(e.email)+'">'+esc(e.email)+'</option>').join('');
+    emailSel.value = d.emails[0].email;
+  } else {
+    emailSel.innerHTML = '<option value="">No emails found</option>';
+  }
   if(jobs.jobs && jobs.jobs.length > 0) {
     const titles = [...new Set(jobs.jobs.map(j => cleanRole(j.title)).filter(Boolean))];
     if (titles.length > 0) document.getElementById('send-role').value = titles[0];
@@ -144,17 +158,37 @@ document.getElementById('send-company').addEventListener('change',async function
 
 document.getElementById('btn-send').addEventListener('click',async function(){
   const company=document.getElementById('send-company').value || document.getElementById('send-company-manual').value.trim() || 'Test Company';
-  const email=document.getElementById('send-email').value.trim();
+  const emailSel=document.getElementById('send-emails');
+  const emails=[...emailSel.selectedOptions].map(o=>o.value).filter(v=>v);
+  if(emails.length===0)return alert('Select at least one email!');
   const role=document.getElementById('send-role').value.trim();
   const subject=document.getElementById('send-subject').value;
   const body=document.getElementById('send-body').value;
   const cvSelect=document.getElementById('send-cv');
   const cvIds=[...cvSelect.selectedOptions].map(o=>o.value).filter(v=>v).join(',');
-  if(!email)return alert('Enter email!');
   this.disabled=true;this.textContent='Sending...';
-  const r=await api('/api/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({company,email,role,subject,body,cvId:cvIds})});
+  const r=await api('/api/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({company,emails,role,subject,body,cvId:cvIds})});
   this.disabled=false;this.textContent='Send Email';
-  document.getElementById('send-status').textContent=r.ok?'Sent! ('+(r.messageId||'').slice(0,15)+'...)':'Error: '+r.error;
+  if(r.ok){
+    const msg = r.skipped ? `✅ Sent! (${emails.length-r.skipped} sent, ${r.skipped} already sent before)` : `✅ Sent to ${emails.length} recipient(s)!`;
+    document.getElementById('send-status').textContent=msg;
+  } else {
+    document.getElementById('send-status').textContent='❌ '+r.error;
+  }
+  if(r.ok)loadLog();
+});
+
+document.getElementById('btn-send-all').addEventListener('click',async function(){
+  if(!confirm('Send to ALL companies with emails?'))return;
+  const subject=document.getElementById('send-subject').value;
+  const body=document.getElementById('send-body').value;
+  const cvSelect=document.getElementById('send-cv');
+  const cvIds=[...cvSelect.selectedOptions].map(o=>o.value).filter(v=>v).join(',');
+  this.disabled=true;this.textContent='Sending to all...';
+  document.getElementById('send-status').textContent='⏳ Sending...';
+  const r=await api('/api/send/batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({subject,body,cvId:cvIds})});
+  this.disabled=false;this.textContent='📨 Send to All Companies';
+  document.getElementById('send-status').textContent=r.ok?`✅ Sent: ${r.sent}/${r.total} | Skipped: ${r.skipped||0} | Failed: ${r.failed}`:'❌ '+r.error;
   if(r.ok)loadLog();
 });
 

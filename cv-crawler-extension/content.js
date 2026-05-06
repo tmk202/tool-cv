@@ -43,9 +43,18 @@ function extractEmailsFromPage() {
   const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
   const found = text.match(emailRegex) || [];
   const unique = [...new Set(found.map(e => e.toLowerCase()))];
+  const platformDomains = [
+    'topcv.vn', 'itviec.com', 'vietnamworks.com', 'careerviet.vn',
+    'vieclam24h.vn', 'jobsgo.vn', 'topdev.vn', 'glints.com',
+    'linkedin.com', 'facebook.com', 'google.com', 'youtube.com',
+    'example.com'
+  ];
   return unique.filter(e => {
-    const blocked = ['example.com', '.png', '.jpg', '.gif', '.css', '.js'];
-    return !blocked.some(b => e.endsWith(b));
+    const domain = e.split('@')[1];
+    if (!domain) return false;
+    if (platformDomains.some(d => domain === d || domain.endsWith('.' + d))) return false;
+    if (domain.match(/\.(png|jpg|jpeg|gif|css|js|svg|ico)$/i)) return false;
+    return true;
   });
 }
 
@@ -377,6 +386,7 @@ function detectAndNotify(url) {
 
 async function autoFindEmails() {
   let shouldClose = false;
+  let companyName = '';
 
   try {
     const url = window.location.href;
@@ -387,7 +397,7 @@ async function autoFindEmails() {
     if (!query.includes('email tuyển dụng') && !query.includes('email tuyen dung')) return;
 
     const companyQuery = query.replace(/email tuyển dụng|email tuyen dung|email|tuyển dụng|hr|recruitment/gi, '').trim();
-    const companyName = companyQuery.split(/[+-]/).map(s => s.trim()).filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    companyName = companyQuery.replace(/\s+/g, ' ').trim();
     if (!companyName) return;
 
     shouldClose = true;
@@ -416,8 +426,8 @@ async function autoFindEmails() {
     console.log('[CV Crawler] autoFindEmails error:', err.message);
   }
 
-  if (shouldClose) {
-    chrome.runtime.sendMessage({ type: 'CLOSE_THIS_TAB' });
+  if (shouldClose && companyName) {
+    chrome.runtime.sendMessage({ type: 'CLOSE_THIS_TAB', company: companyName });
   }
 }
 
