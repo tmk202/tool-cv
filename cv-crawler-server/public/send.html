@@ -62,16 +62,16 @@
         <div class="form-row"><label>Company</label><select id="send-company"><option value="">Select...</option></select><input type="text" id="send-company-manual" placeholder="Or type manually" style="flex:0.5;"></div>
         <div class="form-row"><label>Email(s)</label><select id="send-emails" multiple style="min-height:60px;flex:1;"><option value="">No emails found</option></select><span style="font-size:11px;color:#888;align-self:flex-end;">Ctrl+click to select multiple</span></div>
         <div class="form-row"><label>Role</label><input type="text" id="send-role" value="Software Engineer | AI & Automation Specialist" style="flex:1;"></div>
+        <div class="form-row"><label>Template</label>
+          <select id="template-select" style="flex:0 0 220px;">
+            <option value="job">💼 Job Application</option>
+            <option value="freelancer">🤝 Freelance Proposal</option>
+            <option value="cold-email">📢 Cold Email Marketing</option>
+          </select>
+          <button id="btn-load-template" class="btn-secondary" style="flex:none;">Load</button>
+        </div>
         <div class="form-row"><label>Subject</label><input type="text" id="send-subject" value="Application for {{role}} at {{company}}"></div>
-        <div class="form-row"><label>Body</label><textarea id="send-body" style="min-height:200px;font-family:monospace;" placeholder="Soạn nội dung email...">Dear HR Team,
-
-I am writing to apply for the position of **{{role}}** at **{{company}}**. I have attached my CV for your review.
-
-**Skills & Experience:**
-- ...
-
-Best regards,
-[Your Name]</textarea></div>
+        <div class="form-row"><label>Body</label><textarea id="send-body" style="min-height:200px;font-family:monospace;" placeholder="Soạn nội dung email...">Loading...</textarea></div>
         <div class="form-row"><label>CV</label><select id="send-cv" multiple style="min-height:60px;"><option value="">No CV</option></select><span style="font-size:11px;color:#888;align-self:flex-end;">Ctrl+click to select multiple</span></div>
         <div class="form-row"><label></label><button id="btn-send" class="btn-primary">Send Email</button><button id="btn-send-all" class="btn-secondary">📨 Send to All Companies</button><span id="send-status" style="font-size:13px;color:#666;align-self:center;"></span></div>
       </div>
@@ -129,6 +129,24 @@ async function loadCompose(){
   cv.value='';
 }
 
+async function loadTemplate(type) {
+  const url = type === 'job' ? '/api/template' : '/api/template?type=' + type;
+  const r = await api(url);
+  if (r.ok) {
+    document.getElementById('send-body').value = r.html;
+    if (type === 'job') {
+      document.getElementById('send-subject').value = 'Application for {{role}} at {{company}}';
+    } else if (type === 'freelancer') {
+      document.getElementById('send-subject').value = 'Freelance Proposal — {{role}} for {{company}}';
+    } else if (type === 'cold-email') {
+      document.getElementById('send-subject').value = 'Automation & AI Solutions for {{company}}';
+    }
+  }
+}
+
+document.getElementById('template-select').addEventListener('change', () => loadTemplate(document.getElementById('template-select').value));
+document.getElementById('btn-load-template').addEventListener('click', () => loadTemplate(document.getElementById('template-select').value));
+
 function cleanRole(title) {
   return title
     .replace(/(lương|mức lương|thu nhập|upto|up to|tới|đến)\s*[\d.,\s]*[trtriệutriệukmk\$]+\s*/gi, '')
@@ -167,7 +185,8 @@ document.getElementById('btn-send').addEventListener('click',async function(){
   const cvSelect=document.getElementById('send-cv');
   const cvIds=[...cvSelect.selectedOptions].map(o=>o.value).filter(v=>v).join(',');
   this.disabled=true;this.textContent='Sending...';
-  const r=await api('/api/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({company,emails,role,subject,body,cvId:cvIds})});
+  const template=document.getElementById('template-select').value;
+  const r=await api('/api/send',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({company,emails,role,subject,body,cvId:cvIds,template})});
   this.disabled=false;this.textContent='Send Email';
   if(r.ok){
     const msg = r.skipped ? `✅ Sent! (${emails.length-r.skipped} sent, ${r.skipped} already sent before)` : `✅ Sent to ${emails.length} recipient(s)!`;
@@ -186,7 +205,8 @@ document.getElementById('btn-send-all').addEventListener('click',async function(
   const cvIds=[...cvSelect.selectedOptions].map(o=>o.value).filter(v=>v).join(',');
   this.disabled=true;this.textContent='Sending to all...';
   document.getElementById('send-status').textContent='⏳ Sending...';
-  const r=await api('/api/send/batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({subject,body,cvId:cvIds})});
+  const template=document.getElementById('template-select').value;
+  const r=await api('/api/send/batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({subject,body,cvId:cvIds,template})});
   this.disabled=false;this.textContent='📨 Send to All Companies';
   document.getElementById('send-status').textContent=r.ok?`✅ Sent: ${r.sent}/${r.total} | Skipped: ${r.skipped||0} | Failed: ${r.failed}`:'❌ '+r.error;
   if(r.ok)loadLog();
@@ -265,8 +285,7 @@ async function loadLog(){
 
 document.getElementById('btn-clear-log').addEventListener('click',async function(){if(confirm('Clear log?')){await api('/api/send/log',{method:'DELETE'});loadLog();}});
 
-loadSmtp();loadCompose();loadCvList();loadLog();
-(async function(){const d=await api('/api/template');if(d.ok)document.getElementById('send-body').value=d.html})();
+loadSmtp();loadCompose();loadCvList();loadLog();loadTemplate('job');
 </script>
 </body>
 </html>

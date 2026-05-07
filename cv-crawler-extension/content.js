@@ -49,11 +49,17 @@ function extractEmailsFromPage() {
     'linkedin.com', 'facebook.com', 'google.com', 'youtube.com',
     'example.com'
   ];
+  const validTlds = ['com', 'vn', 'net', 'org', 'edu', 'gov', 'info', 'io', 'co', 'jp', 'kr', 'cn', 'sg', 'th', 'my', 'ph', 'id', 'hk', 'tw', 'de', 'uk', 'fr', 'au', 'ca', 'in', 'br', 'mx', 'eu', 'me', 'pro', 'dev', 'app', 'ai', 'tech', 'online', 'site', 'store', 'cloud'];
   return unique.filter(e => {
     const domain = e.split('@')[1];
     if (!domain) return false;
+    const parts = domain.split('.');
+    const tld = parts[parts.length - 1];
+    if (tld.length < 2 || tld.length > 6) return false;
+    if (parts.length > 3) return false;
     if (platformDomains.some(d => domain === d || domain.endsWith('.' + d))) return false;
     if (domain.match(/\.(png|jpg|jpeg|gif|css|js|svg|ico)$/i)) return false;
+    if (!validTlds.includes(tld) && tld.length > 3) return false;
     return true;
   });
 }
@@ -396,8 +402,13 @@ async function autoFindEmails() {
     const query = (params.get('q') || '').toLowerCase().trim();
     if (!query.includes('email tuyển dụng') && !query.includes('email tuyen dung')) return;
 
-    const companyQuery = query.replace(/email tuyển dụng|email tuyen dung|email|tuyển dụng|hr|recruitment/gi, '').trim();
-    companyName = companyQuery.replace(/\s+/g, ' ').trim();
+    const cvCompany = params.get('cv_company');
+    if (cvCompany && cvCompany.trim()) {
+      companyName = cvCompany.trim();
+    } else {
+      const companyQuery = query.replace(/email tuyển dụng|email tuyen dung|email|tuyển dụng|hr|recruitment/gi, '').trim();
+      companyName = companyQuery.replace(/\s+/g, ' ').trim();
+    }
     if (!companyName) return;
 
     shouldClose = true;

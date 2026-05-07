@@ -19,6 +19,7 @@
     .email-input { padding: 4px 8px; border: 1.5px solid #ddd; border-radius: 4px; font-size: 12px; width: 200px; }
     .btn-tiny { padding: 4px 8px; font-size: 11px; }
     #search-box { padding: 9px 12px; border: 1.5px solid #ddd; border-radius: 6px; font-size: 14px; width: 100%; margin-bottom: 12px; }
+    .badge-green { background: #d4edda; color: #155724; padding: 2px 8px; border-radius: 4px; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -35,7 +36,12 @@
       <button id="btn-batch-find" class="btn-primary" style="font-size:12px;padding:6px 12px;">🚀 Batch Find Emails</button>
       <button id="btn-clear-emails" class="btn-danger-outline" style="font-size:12px;padding:6px 12px;">🗑 Clear All Emails</button>
     </div>
-    <input type="text" id="search-box" placeholder="Search company..." autocomplete="off">
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;">
+      <input type="text" id="search-box" placeholder="Search company..." autocomplete="off" style="flex:1;padding:9px 12px;border:1.5px solid #ddd;border-radius:6px;font-size:14px;">
+      <label style="display:flex;align-items:center;gap:4px;font-size:13px;color:#666;cursor:pointer;white-space:nowrap;">
+        <input type="checkbox" id="hide-sent" checked> Hide sent
+      </label>
+    </div>
     <div id="company-list"></div>
     <div id="batch-status" class="hidden" style="background:#fff3cd;padding:10px;border-radius:8px;margin-top:10px;font-size:13px;color:#856404;"></div>
   </div>
@@ -66,13 +72,16 @@
       document.getElementById('total-badge').textContent = (allEmails.emails || []).length + ' emails';
 
       const search = document.getElementById('search-box').value.toLowerCase().trim();
+      const hideSent = document.getElementById('hide-sent').checked;
       let list = companies.companies;
       if (search) list = list.filter(c => c.name.includes(search));
+      if (hideSent) list = list.filter(c => !c.sentCount);
 
       const container = document.getElementById('company-list');
       container.innerHTML = list.map(c => {
         const key = c.name.toLowerCase().trim();
         const emails = emailsByCompany[key] || [];
+        const sentBadge = c.sentCount > 0 ? '<span class="badge badge-green" style="font-size:10px;margin-left:6px;">✅ Sent</span>' : '';
         const emailStr = emails.length > 0
           ? emails.map(e => `<span class="email-badge">${esc(e)}</span>`).join('')
           : '<span class="no-email">Chưa có email</span>';
@@ -80,7 +89,7 @@
         return `
           <div class="company-card">
             <div>
-              <div class="company-name">${esc(c.name)}</div>
+              <div class="company-name">${esc(c.name)}${sentBadge}</div>
               <div class="email-list">${emailStr}</div>
             </div>
             <div class="company-actions">
@@ -125,6 +134,7 @@
     }
 
     document.getElementById('search-box').addEventListener('input', load);
+    document.getElementById('hide-sent').addEventListener('change', load);
 
     document.getElementById('btn-clear-emails').addEventListener('click', async () => {
       if (!confirm('Xoá tất cả emails đã lưu?')) return;

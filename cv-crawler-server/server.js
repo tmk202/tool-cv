@@ -16,12 +16,17 @@ const BLOCKED_DOMAINS = [
 function isValidEmail(email) {
   const domain = (email || '').split('@')[1];
   if (!domain) return false;
+  const parts = domain.split('.');
+  const tld = parts[parts.length - 1];
+  if (tld.length < 2 || tld.length > 6) return false;
+  if (parts.length > 3) return false;
+  if (domain.match(/\.(png|jpg|jpeg|gif|css|js|svg|ico)$/i)) return false;
   if (BLOCKED_DOMAINS.some(d => domain === d || domain.endsWith('.' + d))) return false;
   return true;
 }
 
 function alreadySent(company, email) {
-  const row = db.prepare("SELECT COUNT(*) as c FROM send_log WHERE LOWER(TRIM(company)) = ? AND LOWER(TRIM(email)) = ? AND status = 'sent'").get(company.toLowerCase().trim(), email.toLowerCase().trim());
+  const row = db.prepare("SELECT COUNT(*) as c FROM send_log WHERE LOWER(TRIM(company)) = ? AND (',' || LOWER(TRIM(email)) || ',') LIKE '%,' || ? || ',%' AND status = 'sent'").get(company.toLowerCase().trim(), email.toLowerCase().trim());
   return row.c > 0;
 }
 
@@ -32,6 +37,8 @@ const UPLOAD_DIR = join(__dirname, 'uploads');
 if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 const EMAIL_TEMPLATE = fs.readFileSync(join(__dirname, '..', 'template.html'), 'utf-8');
+const FREELANCER_TEMPLATE = fs.readFileSync(join(__dirname, '..', 'template-freelancer.html'), 'utf-8');
+const COLD_EMAIL_TEMPLATE = fs.readFileSync(join(__dirname, '..', 'template-cold-email.html'), 'utf-8');
 
 const storage = multer.diskStorage({
   destination: UPLOAD_DIR,
@@ -63,7 +70,12 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_location ON jobs(location);
   CREATE INDEX IF NOT EXISTS idx_company ON jobs(company);
   CREATE INDEX IF NOT EXISTS idx_platform ON jobs(platform);
+`);
 
+db.exec(`DELETE FROM jobs WHERE rowid NOT IN (SELECT MIN(rowid) FROM jobs GROUP BY title, company)`);
+db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_unique ON jobs(title, company)`);
+
+db.exec(`
   CREATE TABLE IF NOT EXISTS emails (
     id TEXT PRIMARY KEY,
     company TEXT NOT NULL,
@@ -75,6 +87,8 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_emails_company ON emails(company);
   DROP INDEX IF EXISTS idx_emails_unique;
   CREATE INDEX IF NOT EXISTS idx_emails_email ON emails(email);
+
+  DELETE FROM jobs WHERE rowid NOT IN (SELECT MIN(rowid) FROM jobs GROUP BY title, company);
 
   CREATE TABLE IF NOT EXISTS smtp_config (
     id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -205,11 +219,22 @@ app.get('/api/stats', (req, res) => {
   }
 });
 
+function shortenName(name) {
+  let n = name.trim();
+  n = n.replace(/^(công ty|cty|cong ty)\s*(cổ phần|cp|tnhh|tnhh mtv|tnhh 1tv|tnhh 1 thành viên|hợp danh)?\s*/i, '');
+  n = n.replace(/^(tổng\s+)?(công\s+ty|cty)\s*(cổ\s+phần|cp|tnhh)?\s*/i, '');
+  n = n.replace(/\s*(cổ phần|cp|tnhh|tnhh mtv)\s*$/i, '');
+  n = n.replace(/^(việt\s*nam)\s+/i, '').trim();
+  return n || name;
+}
+
 app.get('/api/companies/search-url', (req, res) => {
   const company = (req.query.company || '').trim();
   if (!company) return res.json({ ok: false });
-  const url = `https://www.google.com/search?q=${encodeURIComponent(company + ' email tuyển dụng')}`;
-  console.log('[EMAIL] search-url:', company, '→', url.slice(0, 80));
+  const short = shortenName(company);
+  const query = short + ' email tuyển dụng';
+  const url = `https://www.google.com/search?q=${encodeURIComponent(query)}&cv_company=${encodeURIComponent(company)}`;
+  console.log('[EMAIL] search-url:', company, '→ short:', short);
   res.json({ ok: true, url });
 });
 
@@ -217,9 +242,10 @@ app.get('/api/companies', (req, res) => {
   try {
     const companies = db.prepare(`
       SELECT TRIM(j.company) as name, MIN(j.crawledAt) as firstSeen,
-        (SELECT COUNT(*) FROM emails e WHERE LOWER(TRIM(e.company)) = LOWER(TRIM(j.company))) as emailCount
+        (SELECT COUNT(*) FROM emails e WHERE LOWER(TRIM(e.company)) = LOWER(TRIM(j.company))) as emailCount,
+        (SELECT COUNT(*) FROM send_log sl WHERE LOWER(TRIM(sl.company)) = LOWER(TRIM(j.company)) AND sl.status = 'sent') as sentCount
       FROM jobs j GROUP BY LOWER(TRIM(j.company))
-      ORDER BY emailCount ASC, name ASC
+      ORDER BY sentCount DESC, emailCount ASC, name ASC
     `).all();
     res.json({ ok: true, companies });
   } catch (err) {
@@ -399,7 +425,9 @@ app.delete('/api/cv/:id', (req, res) => {
 // ─── Send Email ───
 
 app.get('/api/template', (req, res) => {
-  res.json({ ok: true, html: EMAIL_TEMPLATE });
+  const type = req.query.type;
+  const tpl = type === 'freelancer' ? FREELANCER_TEMPLATE : type === 'cold-email' ? COLD_EMAIL_TEMPLATE : EMAIL_TEMPLATE;
+  res.json({ ok: true, html: tpl });
 });
 
 app.post('/api/send', async (req, res) => {
@@ -423,7 +451,9 @@ app.post('/api/send', async (req, res) => {
     const r = (s) => s.replace(/\{\{(\w+)\}\}/gi, (_, k) => vars[k.toLowerCase()] || `{{${k}}}`);
 
     const finalSubject = r(subject || 'Application for {{role}} at {{company}}');
-    const finalBody = r(body || EMAIL_TEMPLATE);
+    const t = req.body.template;
+    const defaultTpl = t === 'freelancer' ? FREELANCER_TEMPLATE : t === 'cold-email' ? COLD_EMAIL_TEMPLATE : EMAIL_TEMPLATE;
+    const finalBody = r(body || defaultTpl);
 
     const attachments = [];
     if (cvId) {
@@ -439,19 +469,21 @@ app.post('/api/send', async (req, res) => {
       }
     }
 
-    const toStr = unsent.join(',');
+    const allRecipients = unsent.join(',');
+    const toStr = unsent[0] || '';
+    const bccStr = unsent.length > 1 ? unsent.slice(1).join(',') : undefined;
     const info = await transporter.sendMail({
       from: `"${config.fromName || config.username}" <${config.fromEmail || config.username}>`,
-      to: toStr,
+      to: toStr, bcc: bccStr,
       subject: finalSubject,
       html: finalBody,
       attachments
     });
 
-    console.log('[EMAIL] sent:', company, '→', toStr.slice(0, 80), '| subject:', finalSubject.slice(0, 40));
+    console.log('[EMAIL] sent:', company, '→', allRecipients.slice(0, 80), '| subject:', finalSubject.slice(0, 40));
     const logId = Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
     db.prepare('INSERT INTO send_log (id, company, email, subject, cvFile, status, error, sentAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(logId, company, toStr, finalSubject, cvId || '', 'sent', '', new Date().toISOString());
+      .run(logId, company, allRecipients, finalSubject, cvId || '', 'sent', '', new Date().toISOString());
 
     res.json({ ok: true, messageId: info.messageId, logId, skipped: toList.length - unsent.length });
   } catch (err) {
@@ -466,7 +498,7 @@ app.post('/api/send', async (req, res) => {
 
 app.post('/api/send/batch', async (req, res) => {
   try {
-    const { subject, body, cvId } = req.body;
+    const { subject, body, cvId, template } = req.body;
     const companies = db.prepare(`
       SELECT DISTINCT LOWER(TRIM(j.company)) as name FROM jobs j
       INNER JOIN emails e ON LOWER(TRIM(e.company)) = LOWER(TRIM(j.company))
@@ -516,12 +548,14 @@ let sent = 0, failed = 0, skipped = 0;
 
       const vars = { company, role };
       const r = (s) => s.replace(/\{\{(\w+)\}\}/gi, (_, k) => vars[k.toLowerCase()] || `{{${k}}}`);
-      const toStr = unsent.join(',');
+      const allRecipients = unsent.join(',');
+      const toStr = unsent[0] || '';
+      const bccStr = unsent.length > 1 ? unsent.slice(1).join(',') : undefined;
 
       try {
         await transporter.sendMail({
           from: `"${config.fromName || config.username}" <${config.fromEmail || config.username}>`,
-          to: toStr,
+          to: toStr, bcc: bccStr,
           subject: r(subject || 'Application for {{role}} at {{company}}'),
           html: r(body || 'Dear HR of {{company}},...'),
           attachments
@@ -529,11 +563,14 @@ let sent = 0, failed = 0, skipped = 0;
         sent++;
         const logId = Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
         db.prepare('INSERT INTO send_log (id, company, email, subject, cvFile, status, error, sentAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-          .run(logId, company, toStr, r(subject || 'Application for {{role}} at {{company}}'), cvId || '', 'sent', '', new Date().toISOString());
-        console.log('[EMAIL] batch sent:', company, '→', toStr.slice(0, 60));
+          .run(logId, company, allRecipients, r(subject || 'Application for {{role}} at {{company}}'), cvId || '', 'sent', '', new Date().toISOString());
+        console.log('[EMAIL] batch sent:', company, '→', allRecipients.slice(0, 60));
       } catch (err) {
         failed++;
         console.log('[EMAIL] batch failed:', company, err.message);
+        const logId = Date.now().toString(36) + Math.random().toString(36).substr(2, 4);
+        db.prepare('INSERT INTO send_log (id, company, email, subject, cvFile, status, error, sentAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+          .run(logId, company, allRecipients, r(subject || 'Application for {{role}} at {{company}}'), cvId || '', 'failed', err.message, new Date().toISOString());
       }
     }
 

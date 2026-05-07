@@ -97,6 +97,7 @@ async function detectCurrentPlatform() {
 function getPlatformInfo(id) {
   const platforms = {
     google: { name: 'Google Jobs' },
+    linkedin: { name: 'LinkedIn' },
     topcv: { name: 'TopCV' },
     itviec: { name: 'ITViec' },
     vietnamworks: { name: 'VietnamWorks' },
@@ -520,7 +521,7 @@ function pollBatchStatus() {
 
 function showPlatforms(e) {
   e.preventDefault();
-  const list = ['Google Jobs', 'TopCV', 'ITViec', 'VietnamWorks', 'CareerViet', 'ViecLam24h', 'JobsGo', 'TopDev', 'Glints'];
+  const list = ['LinkedIn', 'Google Jobs', 'TopCV', 'ITViec', 'VietnamWorks', 'CareerViet', 'ViecLam24h', 'JobsGo', 'TopDev', 'Glints'];
   alert('Hỗ trợ: ' + list.join(', '));
 }
 

@@ -18,7 +18,8 @@
     "*://*.jobsgo.vn/*",
     "*://*.topdev.vn/*",
     "*://*.glints.com/*",
-    "*://*.google.com/*"
+    "*://*.google.com/*",
+    "*://*.linkedin.com/*"
   ],
   "background": {
     "service_worker": "background.js",
@@ -35,7 +36,8 @@
         "*://*.jobsgo.vn/*",
         "*://*.topdev.vn/*",
         "*://*.glints.com/*",
-        "*://*.google.com/*"
+        "*://*.google.com/*",
+        "*://*.linkedin.com/*"
       ],
       "js": [
         "utils.js",

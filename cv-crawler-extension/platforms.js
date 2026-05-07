@@ -495,6 +495,71 @@ const PLATFORMS = [
     }
   },
   {
+    id: 'linkedin',
+    name: 'LinkedIn',
+    domains: ['linkedin.com'],
+    matchUrl: /linkedin\.com\/jobs/i,
+    jobPageUrl: /linkedin\.com\/jobs/i,
+    selectors: {
+      container: [
+        '.jobs-search__results-list li',
+        '.jobs-search-results__list li',
+        'li[data-entity-urn]',
+        '.scaffold-finite-scroll__content li',
+        'ul.jobs-search__results-list > li',
+        '[data-job-id]'
+      ],
+      title: [
+        'h3.base-search-card__title',
+        'a.base-search-card__title',
+        'h3[class*="job-card"]',
+        'a[class*="job-title"]',
+        'h3',
+        'a[data-anonymize="job-title"]'
+      ],
+      company: [
+        'h4.base-search-card__subtitle a',
+        'a.base-search-card__subtitle',
+        'a[class*="company-name"]',
+        'h4[class*="subtitle"]',
+        '[data-anonymize="company-name"] a',
+        'a[data-anonymize="company-name"]'
+      ],
+      location: [
+        'span.job-search-card__location',
+        '[class*="location"]',
+        'span[class*="location"]'
+      ],
+      salary: [
+        'span.job-search-card__salary-info',
+        '[class*="salary"]',
+        '[class*="compensation"]'
+      ],
+      postedDate: [
+        'time',
+        'span.job-search-card__listdate',
+        '[class*="date"]',
+        '[class*="posted"]',
+        '[class*="time"]'
+      ],
+      link: [
+        'a.base-search-card__title',
+        'a[href*="/jobs/view/"]',
+        'a[class*="job-card"]',
+        'a[data-anonymize="job-title"]'
+      ]
+    },
+    pagination: {
+      type: 'click',
+      selector: [
+        'button[aria-label*="Next"]',
+        'button.infinite-scroller__show-more',
+        '.infinite-scroller__show-more button',
+        'li.artdeco-pagination__button--next button'
+      ]
+    }
+  },
+  {
     id: 'google',
     name: 'Google Jobs',
     domains: ['google.com'],
