@@ -25,6 +25,18 @@ async function loadStats() {
     sel.appendChild(opt);
   });
   sel.value = currentVal;
+
+  const catSel = document.getElementById('filter-category');
+  const currentCat = catSel.value;
+  catSel.innerHTML = '<option value="">All categories</option>';
+  (stats.categories || []).forEach(c => {
+    const opt = document.createElement('option');
+    opt.value = c.category;
+    const label = { developer: 'Developer', designer: 'Designer', qa: 'QA/Test', marketing: 'Marketing', sales: 'Sales', management: 'Management', intern: 'Intern', data: 'Data/AI', other: 'Other' };
+    opt.textContent = `${label[c.category] || c.category} (${c.count})`;
+    catSel.appendChild(opt);
+  });
+  catSel.value = currentCat;
 }
 
 async function loadJobs(page = 1) {
@@ -34,8 +46,9 @@ async function loadJobs(page = 1) {
   const company = document.getElementById('filter-company').value.trim();
   const exclude = document.getElementById('filter-exclude').value.trim();
   const platform = document.getElementById('filter-platform').value;
+  const category = document.getElementById('filter-category').value;
 
-  currentFilters = { title, location, company, exclude, platform };
+  currentFilters = { title, location, company, exclude, platform, category };
 
   const params = new URLSearchParams({ page, limit: 20 });
   if (title) params.set('title', title);
@@ -43,6 +56,7 @@ async function loadJobs(page = 1) {
   if (company) params.set('company', company);
   if (exclude) params.set('exclude', exclude);
   if (platform) params.set('platform', platform);
+  if (category) params.set('category', category);
 
   const result = await api(`/api/jobs?${params}`);
   if (!result.ok) return;
@@ -57,15 +71,25 @@ async function loadJobs(page = 1) {
     return;
   }
 
+  const label = { developer: 'Developer', designer: 'Designer', qa: 'QA/Test', marketing: 'Marketing', sales: 'Sales', management: 'Management', intern: 'Intern', data: 'Data/AI', other: 'Other' };
+
   container.innerHTML = result.jobs.map(job => `
     <div class="job-card">
-      <div class="job-company">${esc(job.company)}</div>
+      <div class="job-company">${esc(job.company)}
+        <span style="font-size:11px;font-weight:400;color:#999;margin-left:8px;">
+          <select onchange="setCategory('${esc(job.company)}',this.value)" style="font-size:11px;padding:1px 4px;border:1px solid #ddd;border-radius:3px;">
+            <option value="">--</option>
+            ${Object.entries(label).map(([k,v]) => `<option value="${k}" ${job.category === k ? 'selected' : ''}>${v}</option>`).join('')}
+          </select>
+        </span>
+      </div>
       <div class="job-title">${esc(job.title)}</div>
       <div class="job-meta">
         <span>📍 ${esc(job.location)}</span>
         <span>💰 ${esc(job.salary)}</span>
         <span>📅 ${esc(job.postedDate)}</span>
         <span class="job-platform-badge">${job.platformName || job.platform}</span>
+        ${job.category ? `<span class="job-cat-badge">${label[job.category] || job.category}</span>` : ''}
         ${job.url ? `<a href="${esc(job.url)}" target="_blank" class="job-url">🔗 Link</a>` : ''}
       </div>
     </div>
@@ -98,6 +122,14 @@ function esc(text) {
   return d.innerHTML;
 }
 
+async function setCategory(company, category) {
+  await api('/api/jobs/category', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ company, category })
+  });
+}
+
 document.getElementById('btn-filter').addEventListener('click', () => loadJobs(1));
 document.getElementById('btn-clear-filter').addEventListener('click', () => {
   document.getElementById('filter-title').value = '';
@@ -105,6 +137,7 @@ document.getElementById('btn-clear-filter').addEventListener('click', () => {
   document.getElementById('filter-company').value = '';
   document.getElementById('filter-exclude').value = '';
   document.getElementById('filter-platform').value = '';
+  document.getElementById('filter-category').value = '';
   loadJobs(1);
 });
 

@@ -617,7 +617,8 @@ const PLATFORMS = [
               title, company,
               location: location || 'N/A',
               salary: 'N/A', postedDate: 'N/A',
-              url: window.location.href, crawledAt: new Date().toISOString()
+              url: window.location.href, crawledAt: new Date().toISOString(),
+              category: typeof currentCategory !== 'undefined' ? currentCategory : ''
             });
           }
         }

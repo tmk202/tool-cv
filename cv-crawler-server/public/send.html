@@ -61,17 +61,19 @@
       <div class="card">
         <div class="form-row"><label>Company</label><select id="send-company"><option value="">Select...</option></select><input type="text" id="send-company-manual" placeholder="Or type manually" style="flex:0.5;"></div>
         <div class="form-row"><label>Email(s)</label><select id="send-emails" multiple style="min-height:60px;flex:1;"><option value="">No emails found</option></select><span style="font-size:11px;color:#888;align-self:flex-end;">Ctrl+click to select multiple</span></div>
-        <div class="form-row"><label>Role</label><input type="text" id="send-role" value="Software Engineer | AI & Automation Specialist" style="flex:1;"></div>
+        <div class="form-row"><label>Role</label><input type="text" id="send-role" placeholder="Tự động theo template nếu để trống" style="flex:1;"></div>
         <div class="form-row"><label>Template</label>
           <select id="template-select" style="flex:0 0 220px;">
             <option value="job">💼 Job Application</option>
             <option value="freelancer">🤝 Freelance Proposal</option>
             <option value="cold-email">📢 Cold Email Marketing</option>
+            <option value="va">👩‍💼 VA</option>
           </select>
           <button id="btn-load-template" class="btn-secondary" style="flex:none;">Load</button>
         </div>
         <div class="form-row"><label>Subject</label><input type="text" id="send-subject" value="Application for {{role}} at {{company}}"></div>
         <div class="form-row"><label>Body</label><textarea id="send-body" style="min-height:200px;font-family:monospace;" placeholder="Soạn nội dung email...">Loading...</textarea></div>
+        <div class="form-row"><label>Filter</label><select id="batch-category" style="flex:0 0 200px;"><option value="">All categories</option><option value="developer">Developer</option><option value="designer">Designer</option><option value="qa">QA/Test</option><option value="marketing">Marketing</option><option value="sales">Sales</option><option value="management">Management</option><option value="intern">Intern</option><option value="data">Data/AI</option><option value="other">Other</option></select><span style="font-size:12px;color:#888;">Lọc company theo category khi gửi hàng loạt</span></div>
         <div class="form-row"><label>CV</label><select id="send-cv" multiple style="min-height:60px;"><option value="">No CV</option></select><span style="font-size:11px;color:#888;align-self:flex-end;">Ctrl+click to select multiple</span></div>
         <div class="form-row"><label></label><button id="btn-send" class="btn-primary">Send Email</button><button id="btn-send-all" class="btn-secondary">📨 Send to All Companies</button><span id="send-status" style="font-size:13px;color:#666;align-self:center;"></span></div>
       </div>
@@ -119,28 +121,45 @@ document.querySelectorAll('.tab').forEach(t=>{
   });
 });
 
+const catLabel = { developer:'Dev', designer:'Design', qa:'QA', marketing:'Mkt', sales:'Sales', management:'Mgmt', intern:'Intern', data:'Data' };
+
 async function loadCompose(){
   const[companies,emails,cvs]=await Promise.all([api('/api/companies'),api('/api/emails'),api('/api/cv/list')]);
   const sel=document.getElementById('send-company');
   const map={};(emails.emails||[]).forEach(e=>{const k=e.company.toLowerCase().trim();if(!map[k])map[k]=[];map[k].push(e.email)});
-  sel.innerHTML='<option value="">Select...</option>'+(companies.companies||[]).map(c=>'<option value="'+esc(c.name)+'">'+esc(c.name)+' ('+(map[c.name.toLowerCase().trim()]?.length||0)+' emails)</option>').join('');
+  sel.innerHTML='<option value="">Select...</option>'+(companies.companies||[]).map(c=>{
+    const cat = c.category && catLabel[c.category] ? ' ['+catLabel[c.category]+']' : '';
+    return '<option value="'+esc(c.name)+'">'+esc(c.name)+cat+' ('+(map[c.name.toLowerCase().trim()]?.length||0)+' emails)</option>'
+  }).join('');
   const cv=document.getElementById('send-cv');
   cv.innerHTML='<option value="">No CV</option>'+(cvs.files||[]).map(f=>'<option value="'+esc(f.id)+'">'+esc(f.originalName)+'</option>').join('');
   cv.value='';
 }
+
+const TEMPLATE_ROLES = {
+  job: 'Software Engineer | AI & Automation Specialist',
+  freelancer: 'Freelance Developer',
+  'cold-email': 'AI & Automation Solutions',
+  va: 'Event Planner | Internal Communications Specialist'
+};
 
 async function loadTemplate(type) {
   const url = type === 'job' ? '/api/template' : '/api/template?type=' + type;
   const r = await api(url);
   if (r.ok) {
     document.getElementById('send-body').value = r.html;
-    if (type === 'job') {
-      document.getElementById('send-subject').value = 'Application for {{role}} at {{company}}';
-    } else if (type === 'freelancer') {
-      document.getElementById('send-subject').value = 'Freelance Proposal — {{role}} for {{company}}';
-    } else if (type === 'cold-email') {
-      document.getElementById('send-subject').value = 'Automation & AI Solutions for {{company}}';
+    const roleInput = document.getElementById('send-role');
+    if (!roleInput.value || roleInput.value === roleInput.dataset.lastFallback) {
+      roleInput.value = TEMPLATE_ROLES[type] || '';
     }
+    roleInput.dataset.lastFallback = TEMPLATE_ROLES[type] || '';
+    const subjects = {
+      job: 'Application for {{role}} at {{company}}',
+      freelancer: 'Freelance Proposal — {{role}} for {{company}}',
+      'cold-email': 'Automation & AI Solutions for {{company}}',
+      va: 'Application for {{role}} at {{company}}'
+    };
+    if (subjects[type]) document.getElementById('send-subject').value = subjects[type];
   }
 }
 
@@ -171,6 +190,18 @@ document.getElementById('send-company').addEventListener('change',async function
   if(jobs.jobs && jobs.jobs.length > 0) {
     const titles = [...new Set(jobs.jobs.map(j => cleanRole(j.title)).filter(Boolean))];
     if (titles.length > 0) document.getElementById('send-role').value = titles[0];
+    const cats = jobs.jobs.map(j => j.category).filter(Boolean);
+    const topCat = cats.sort((a,b) => cats.filter(c => c===a).length - cats.filter(c => c===b).length).pop();
+    if (topCat) {
+      let el = document.getElementById('category-indicator');
+      if (!el) {
+        el = document.createElement('div');
+        el.id = 'category-indicator';
+        el.style.cssText = 'font-size:11px;color:#7c3aed;font-weight:600;padding:2px 0 8px 110px;';
+        document.querySelector('#tab-compose .card').appendChild(el);
+      }
+      el.textContent = '🏷 Phân loại: ' + topCat;
+    }
   }
 });
 
@@ -203,10 +234,11 @@ document.getElementById('btn-send-all').addEventListener('click',async function(
   const body=document.getElementById('send-body').value;
   const cvSelect=document.getElementById('send-cv');
   const cvIds=[...cvSelect.selectedOptions].map(o=>o.value).filter(v=>v).join(',');
+  const category=document.getElementById('batch-category').value;
   this.disabled=true;this.textContent='Sending to all...';
   document.getElementById('send-status').textContent='⏳ Sending...';
   const template=document.getElementById('template-select').value;
-  const r=await api('/api/send/batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({subject,body,cvId:cvIds,template})});
+  const r=await api('/api/send/batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({subject,body,cvId:cvIds,template,category})});
   this.disabled=false;this.textContent='📨 Send to All Companies';
   document.getElementById('send-status').textContent=r.ok?`✅ Sent: ${r.sent}/${r.total} | Skipped: ${r.skipped||0} | Failed: ${r.failed}`:'❌ '+r.error;
   if(r.ok)loadLog();

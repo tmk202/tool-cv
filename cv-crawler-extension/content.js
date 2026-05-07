@@ -1,4 +1,5 @@
 let currentPlatform = null;
+let currentCategory = '';
 let isCrawling = false;
 let shouldStop = false;
 
@@ -99,7 +100,8 @@ function extractJobFromCard(platform, card) {
     salary: salary || 'N/A',
     postedDate: postedDate || 'N/A',
     url: url || window.location.href,
-    crawledAt: new Date().toISOString()
+    crawledAt: new Date().toISOString(),
+    category: currentCategory
   };
 }
 
@@ -285,6 +287,7 @@ function handleMessage(message, sender, sendResponse) {
       }
       isCrawling = true;
       shouldStop = false;
+      currentCategory = message.category || '';
       sendResponse({ ok: true });
       runCrawlLoop(currentPlatform, message.maxPages || 5);
       return;

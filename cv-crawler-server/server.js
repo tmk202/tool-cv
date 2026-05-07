@@ -39,6 +39,7 @@ if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 const EMAIL_TEMPLATE = fs.readFileSync(join(__dirname, '..', 'template.html'), 'utf-8');
 const FREELANCER_TEMPLATE = fs.readFileSync(join(__dirname, '..', 'template-freelancer.html'), 'utf-8');
 const COLD_EMAIL_TEMPLATE = fs.readFileSync(join(__dirname, '..', 'template-cold-email.html'), 'utf-8');
+const VA_TEMPLATE = fs.readFileSync(join(__dirname, '..', 'template-va.html'), 'utf-8');
 
 const storage = multer.diskStorage({
   destination: UPLOAD_DIR,
@@ -64,14 +65,17 @@ db.exec(`
     salary TEXT NOT NULL DEFAULT '',
     postedDate TEXT NOT NULL DEFAULT '',
     url TEXT NOT NULL DEFAULT '',
-    crawledAt TEXT NOT NULL DEFAULT ''
+    crawledAt TEXT NOT NULL DEFAULT '',
+    category TEXT NOT NULL DEFAULT ''
   );
+  CREATE INDEX IF NOT EXISTS idx_category ON jobs(category);
   CREATE INDEX IF NOT EXISTS idx_title ON jobs(title);
   CREATE INDEX IF NOT EXISTS idx_location ON jobs(location);
   CREATE INDEX IF NOT EXISTS idx_company ON jobs(company);
   CREATE INDEX IF NOT EXISTS idx_platform ON jobs(platform);
 `);
 
+try { db.exec(`ALTER TABLE jobs ADD COLUMN category TEXT NOT NULL DEFAULT ''`); } catch (e) {}
 db.exec(`DELETE FROM jobs WHERE rowid NOT IN (SELECT MIN(rowid) FROM jobs GROUP BY title, company)`);
 db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_unique ON jobs(title, company)`);
 
@@ -122,8 +126,8 @@ db.exec(`
 `);
 
 const insertStmt = db.prepare(`
-  INSERT OR IGNORE INTO jobs (id, platform, platformName, title, company, location, salary, postedDate, url, crawledAt)
-  VALUES (@id, @platform, @platformName, @title, @company, @location, @salary, @postedDate, @url, @crawledAt)
+  INSERT OR IGNORE INTO jobs (id, platform, platformName, title, company, location, salary, postedDate, url, crawledAt, category)
+  VALUES (@id, @platform, @platformName, @title, @company, @location, @salary, @postedDate, @url, @crawledAt, @category)
 `);
 
 const insertBatch = db.transaction((jobs) => {
@@ -160,6 +164,7 @@ app.get('/api/jobs', (req, res) => {
     const location = (req.query.location || '').trim();
     const company = (req.query.company || '').trim();
     const platform = (req.query.platform || '').trim();
+    const category = (req.query.category || '').trim();
     const excludeRaw = (req.query.exclude || '').trim();
     const page = Math.max(1, parseInt(req.query.page) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 20));
@@ -179,6 +184,10 @@ app.get('/api/jobs', (req, res) => {
     if (company) {
       conditions.push('LOWER(company) LIKE @company');
       params.company = `%${company.toLowerCase()}%`;
+    }
+    if (category) {
+      conditions.push('category = @category');
+      params.category = category;
     }
     if (platform) {
       conditions.push('platform = @platform');
@@ -212,8 +221,9 @@ app.get('/api/stats', (req, res) => {
     const platforms = db.prepare('SELECT platform, platformName, COUNT(*) as count FROM jobs GROUP BY platform ORDER BY count DESC').all();
     const byLocation = db.prepare('SELECT LOWER(TRIM(location)) as loc, COUNT(*) as count FROM jobs GROUP BY loc ORDER BY count DESC LIMIT 20').all();
     const recentPlatform = db.prepare("SELECT platformName, COUNT(*) as count FROM jobs GROUP BY platform ORDER BY MAX(crawledAt) DESC LIMIT 1").get();
+    const categories = db.prepare('SELECT category, COUNT(*) as count FROM jobs WHERE category != \'\' GROUP BY category ORDER BY count DESC').all();
 
-    res.json({ ok: true, total, uniqueCompanies: companies, platforms, byLocation, recentPlatform });
+    res.json({ ok: true, total, uniqueCompanies: companies, platforms, byLocation, recentPlatform, categories });
   } catch (err) {
     res.status(500).json({ ok: false, error: err.message });
   }
@@ -243,7 +253,8 @@ app.get('/api/companies', (req, res) => {
     const companies = db.prepare(`
       SELECT TRIM(j.company) as name, MIN(j.crawledAt) as firstSeen,
         (SELECT COUNT(*) FROM emails e WHERE LOWER(TRIM(e.company)) = LOWER(TRIM(j.company))) as emailCount,
-        (SELECT COUNT(*) FROM send_log sl WHERE LOWER(TRIM(sl.company)) = LOWER(TRIM(j.company)) AND sl.status = 'sent') as sentCount
+        (SELECT COUNT(*) FROM send_log sl WHERE LOWER(TRIM(sl.company)) = LOWER(TRIM(j.company)) AND sl.status = 'sent') as sentCount,
+        (SELECT j2.category FROM jobs j2 WHERE LOWER(TRIM(j2.company)) = LOWER(TRIM(j.company)) AND j2.category != '' GROUP BY j2.category ORDER BY COUNT(*) DESC LIMIT 1) as category
       FROM jobs j GROUP BY LOWER(TRIM(j.company))
       ORDER BY sentCount DESC, emailCount ASC, name ASC
     `).all();
@@ -359,6 +370,15 @@ app.get('/api/jobs/export', (req, res) => {
   }
 });
 
+app.post('/api/jobs/category', (req, res) => {
+  try {
+    const { company, category } = req.body;
+    if (!company) return res.json({ ok: false, error: 'Missing company' });
+    db.prepare("UPDATE jobs SET category = ? WHERE LOWER(TRIM(company)) = ?").run(category || '', company.toLowerCase().trim());
+    res.json({ ok: true });
+  } catch (err) { res.status(500).json({ ok: false, error: err.message }); }
+});
+
 // ─── SMTP Config ───
 app.get('/api/smtp/config', (req, res) => {
   try {
@@ -424,10 +444,27 @@ app.delete('/api/cv/:id', (req, res) => {
 
 // ─── Send Email ───
 
+const TEMPLATES = { default: EMAIL_TEMPLATE, freelancer: FREELANCER_TEMPLATE, 'cold-email': COLD_EMAIL_TEMPLATE, va: VA_TEMPLATE };
+const TEMPLATE_ROLES = {
+  default: 'Software Engineer | AI & Automation Specialist',
+  freelancer: 'Freelance Developer',
+  'cold-email': 'AI & Automation Solutions',
+  va: 'Event Planner | Internal Communications Specialist'
+};
+const TEMPLATE_LIST = [
+  { id: 'default', name: 'Default' },
+  { id: 'freelancer', name: 'Freelancer' },
+  { id: 'cold-email', name: 'Cold Email' },
+  { id: 'va', name: 'VA' }
+];
+
 app.get('/api/template', (req, res) => {
-  const type = req.query.type;
-  const tpl = type === 'freelancer' ? FREELANCER_TEMPLATE : type === 'cold-email' ? COLD_EMAIL_TEMPLATE : EMAIL_TEMPLATE;
+  const tpl = TEMPLATES[req.query.type] || EMAIL_TEMPLATE;
   res.json({ ok: true, html: tpl });
+});
+
+app.get('/api/templates', (req, res) => {
+  res.json({ ok: true, templates: TEMPLATE_LIST });
 });
 
 app.post('/api/send', async (req, res) => {
@@ -447,12 +484,13 @@ app.post('/api/send', async (req, res) => {
       auth: { user: config.username, pass: config.password }
     });
 
-    const vars = { company, role: role || 'Software Engineer | AI & Automation Specialist' };
+    const t = req.body.template;
+    const roleDefault = TEMPLATE_ROLES[t] || 'Software Engineer | AI & Automation Specialist';
+    const vars = { company, role: role || roleDefault };
     const r = (s) => s.replace(/\{\{(\w+)\}\}/gi, (_, k) => vars[k.toLowerCase()] || `{{${k}}}`);
 
     const finalSubject = r(subject || 'Application for {{role}} at {{company}}');
-    const t = req.body.template;
-    const defaultTpl = t === 'freelancer' ? FREELANCER_TEMPLATE : t === 'cold-email' ? COLD_EMAIL_TEMPLATE : EMAIL_TEMPLATE;
+    const defaultTpl = TEMPLATES[t] || EMAIL_TEMPLATE;
     const finalBody = r(body || defaultTpl);
 
     const attachments = [];
@@ -498,10 +536,12 @@ app.post('/api/send', async (req, res) => {
 
 app.post('/api/send/batch', async (req, res) => {
   try {
-    const { subject, body, cvId, template } = req.body;
+    const { subject, body, cvId, template, category } = req.body;
+    const catFilter = category ? " AND j.category = '" + category.replace(/'/g, "''") + "'" : '';
     const companies = db.prepare(`
       SELECT DISTINCT LOWER(TRIM(j.company)) as name FROM jobs j
       INNER JOIN emails e ON LOWER(TRIM(e.company)) = LOWER(TRIM(j.company))
+      WHERE 1=1${catFilter}
     `).all();
     
     const config = db.prepare('SELECT * FROM smtp_config WHERE id = 1').get();
@@ -526,19 +566,20 @@ app.post('/api/send/batch', async (req, res) => {
       }
     }
 
-    function getRoleForCompany(company) {
+    function getRoleForCompany(company, tpl) {
+  const fallback = TEMPLATE_ROLES[tpl] || 'Software Engineer | AI & Automation Specialist';
   const job = db.prepare("SELECT title FROM jobs WHERE LOWER(TRIM(company)) = ? AND title != 'N/A' ORDER BY crawledAt DESC LIMIT 1").get(company.toLowerCase().trim());
-  if (!job || !job.title) return 'Software Engineer | AI & Automation Specialist';
+  if (!job || !job.title) return fallback;
   let role = job.title.replace(/(lương|mức lương|thu nhập|upto|up to|tới|đến)\s*[\d.,\s]*[trtriệutriệukmk\$]+\s*/gi, '')
     .replace(/[\d.,]+\s*[-–to]+\s*[\d.,]*\s*[trtriệutriệukmk\$]+\s*/gi, '')
     .replace(/thương lượng|negotiable/gi, '').replace(/\s+/g, ' ').trim();
-  return role || 'Software Engineer | AI & Automation Specialist';
+  return role || fallback;
 }
 
 let sent = 0, failed = 0, skipped = 0;
     for (const c of companies) {
       const company = c.name;
-      const role = getRoleForCompany(company);
+      const role = getRoleForCompany(company, template);
       const emails = db.prepare('SELECT email FROM emails WHERE LOWER(TRIM(company)) = ?').all(company);
       const toList = emails.map(e => e.email).filter(Boolean);
       if (toList.length === 0) continue;

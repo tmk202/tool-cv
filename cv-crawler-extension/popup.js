@@ -280,10 +280,12 @@ async function startCrawl() {
   if (isCrawling) return;
 
   const maxPages = parseInt(document.getElementById('input-max-pages').value) || 5;
+  const category = document.getElementById('input-category').value;
 
   const result = await sendToActiveTab({
     type: 'START_CRAWL',
-    maxPages: maxPages
+    maxPages: maxPages,
+    category: category
   });
 
   if (!result.ok) {

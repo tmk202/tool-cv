@@ -32,6 +32,8 @@ function cleanText(text) {
   return text.replace(/\s+/g, ' ').trim();
 }
 
+
+
 function trimText(text, maxLen = 200) {
   const clean = cleanText(text);
   if (clean.length <= maxLen) return clean;
