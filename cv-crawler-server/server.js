@@ -68,14 +68,16 @@ db.exec(`
     crawledAt TEXT NOT NULL DEFAULT '',
     category TEXT NOT NULL DEFAULT ''
   );
-  CREATE INDEX IF NOT EXISTS idx_category ON jobs(category);
   CREATE INDEX IF NOT EXISTS idx_title ON jobs(title);
   CREATE INDEX IF NOT EXISTS idx_location ON jobs(location);
   CREATE INDEX IF NOT EXISTS idx_company ON jobs(company);
   CREATE INDEX IF NOT EXISTS idx_platform ON jobs(platform);
 `);
 
-try { db.exec(`ALTER TABLE jobs ADD COLUMN category TEXT NOT NULL DEFAULT ''`); } catch (e) {}
+try {
+  db.exec(`ALTER TABLE jobs ADD COLUMN category TEXT DEFAULT ''`);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_category ON jobs(category)`);
+} catch (e) {}
 db.exec(`DELETE FROM jobs WHERE rowid NOT IN (SELECT MIN(rowid) FROM jobs GROUP BY title, company)`);
 db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_unique ON jobs(title, company)`);
 
@@ -122,7 +124,7 @@ db.exec(`
     uploadedAt TEXT NOT NULL DEFAULT ''
   );
 
-  INSERT OR IGNORE INTO smtp_config (id, host, port, username, password, fromEmail, fromName) VALUES (1, '', 587, '', '', '', '');
+  INSERT OR IGNORE INTO smtp_config (id, host, port, username, password, fromEmail, fromName) VALUES (1, 'smtp.gmail.com', 587, '', '', '', '');
 `);
 
 const insertStmt = db.prepare(`
@@ -130,10 +132,14 @@ const insertStmt = db.prepare(`
   VALUES (@id, @platform, @platformName, @title, @company, @location, @salary, @postedDate, @url, @crawledAt, @category)
 `);
 
+function normalizeJob(job) {
+  return { ...job, category: job.category || '' };
+}
+
 const insertBatch = db.transaction((jobs) => {
   let added = 0;
   for (const job of jobs) {
-    const result = insertStmt.run(job);
+    const result = insertStmt.run(normalizeJob(job));
     if (result.changes > 0) added++;
   }
   return added;
@@ -185,13 +191,13 @@ app.get('/api/jobs', (req, res) => {
       conditions.push('LOWER(company) LIKE @company');
       params.company = `%${company.toLowerCase()}%`;
     }
-    if (category) {
-      conditions.push('category = @category');
-      params.category = category;
-    }
     if (platform) {
       conditions.push('platform = @platform');
       params.platform = platform;
+    }
+    if (category) {
+      conditions.push('category = @category');
+      params.category = category;
     }
     if (excludeRaw) {
       const keywords = excludeRaw.split(/[,;\s]+/).map(s => s.trim().toLowerCase()).filter(Boolean);
@@ -221,7 +227,7 @@ app.get('/api/stats', (req, res) => {
     const platforms = db.prepare('SELECT platform, platformName, COUNT(*) as count FROM jobs GROUP BY platform ORDER BY count DESC').all();
     const byLocation = db.prepare('SELECT LOWER(TRIM(location)) as loc, COUNT(*) as count FROM jobs GROUP BY loc ORDER BY count DESC LIMIT 20').all();
     const recentPlatform = db.prepare("SELECT platformName, COUNT(*) as count FROM jobs GROUP BY platform ORDER BY MAX(crawledAt) DESC LIMIT 1").get();
-    const categories = db.prepare('SELECT category, COUNT(*) as count FROM jobs WHERE category != \'\' GROUP BY category ORDER BY count DESC').all();
+    const categories = db.prepare("SELECT category, COUNT(*) as count FROM jobs WHERE category != '' GROUP BY category ORDER BY count DESC").all();
 
     res.json({ ok: true, total, uniqueCompanies: companies, platforms, byLocation, recentPlatform, categories });
   } catch (err) {
@@ -536,12 +542,10 @@ app.post('/api/send', async (req, res) => {
 
 app.post('/api/send/batch', async (req, res) => {
   try {
-    const { subject, body, cvId, template, category } = req.body;
-    const catFilter = category ? " AND j.category = '" + category.replace(/'/g, "''") + "'" : '';
+    const { subject, body, cvId, template } = req.body;
     const companies = db.prepare(`
       SELECT DISTINCT LOWER(TRIM(j.company)) as name FROM jobs j
       INNER JOIN emails e ON LOWER(TRIM(e.company)) = LOWER(TRIM(j.company))
-      WHERE 1=1${catFilter}
     `).all();
     
     const config = db.prepare('SELECT * FROM smtp_config WHERE id = 1').get();
@@ -635,6 +639,23 @@ app.delete('/api/send/log', (req, res) => {
   catch (err) { res.status(500).json({ ok: false, error: err.message }); }
 });
 
+if (process.argv.includes('--checkpoint')) {
+  const result = db.pragma('wal_checkpoint(TRUNCATE)');
+  console.log('Checkpoint:', result);
+  console.log('✅ WAL checkpointed into jobs.db');
+  db.close();
+  process.exit(0);
+}
+
+setInterval(() => {
+  try {
+    db.pragma('wal_checkpoint(TRUNCATE)');
+  } catch (e) {
+    console.log('[Auto checkpoint] error:', e.message);
+  }
+}, 300000);
+
 app.listen(PORT, () => {
   console.log(`CV Crawler Server running at http://localhost:${PORT}`);
+  console.log('⏲ Auto checkpoint every 5 minutes');
 });

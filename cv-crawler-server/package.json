@@ -5,7 +5,8 @@
   "description": "CV Crawler server - filter jobs by title & location",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "checkpoint": "node server.js --checkpoint"
   },
   "dependencies": {
     "better-sqlite3": "^11.7.0",
